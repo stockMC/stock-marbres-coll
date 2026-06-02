@@ -177,6 +177,7 @@ header{background:linear-gradient(160deg,#3D0D18 0%,var(--brand-dk) 40%,var(--br
   <button class="tab-btn active" onclick="showPanel('entrada')">📥 Nova entrada</button>
   <button class="tab-btn" onclick="showPanel('stock')">📋 Estoc</button>
   <button class="tab-btn" onclick="showPanel('imprimir')">🖨 Imprimir</button>
+  <button class="tab-btn" onclick="showPanel('scanner')">📷 Escàner QR</button>
   <button class="tab-btn" onclick="showPanel('config')">⚙️ Configuració</button>
 </div>
 
@@ -414,6 +415,57 @@ function doGet(e) {<br>
       </div>
     </div>
   </div>
+</div>
+
+
+<!-- PANEL ESCÀNER QR -->
+<div class="panel" id="panel-scanner">
+
+  <div class="card">
+    <div class="card-title">📷 Escàner QR — Consulta de taula</div>
+    <div class="card-body">
+
+      <div class="status show info" style="margin-bottom:.6rem">
+        <span>ℹ️</span><span>Apunta la càmera al codi QR de l'etiqueta de la taula per veure totes les seves dades.</span>
+      </div>
+
+      <!-- Zona càmera -->
+      <div id="scanner-wrap" style="position:relative;width:100%;background:#000;border-radius:10px;overflow:hidden;aspect-ratio:1;max-width:400px;margin:0 auto">
+        <video id="scanner-video" style="width:100%;height:100%;object-fit:cover" playsinline></video>
+        <canvas id="scanner-canvas" style="display:none"></canvas>
+        <!-- Visor -->
+        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none">
+          <div style="width:60%;height:60%;border:3px solid rgba(255,255,255,.8);border-radius:12px;box-shadow:0 0 0 9999px rgba(0,0,0,.4)"></div>
+        </div>
+        <!-- Línia d'escàner animada -->
+        <div id="scan-line" style="position:absolute;left:20%;width:60%;height:2px;background:linear-gradient(90deg,transparent,#7B1A2E,transparent);animation:scanline 2s ease-in-out infinite;top:50%"></div>
+      </div>
+
+      <style>
+        @keyframes scanline{0%{top:20%}50%{top:80%}100%{top:20%}}
+      </style>
+
+      <div id="scanner-status" style="text-align:center;margin-top:.7rem;font-size:.8rem;color:var(--stone-600)">Iniciant càmera...</div>
+
+      <div class="btn-row" style="margin-top:.7rem">
+        <button class="btn btn-primary" id="btn-start-scan" onclick="startScanner()" style="flex:1;justify-content:center">▶ Iniciar càmera</button>
+        <button class="btn btn-ghost" id="btn-stop-scan" onclick="stopScanner()" style="display:none">⏹ Aturar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Resultat de l'escàner -->
+  <div id="scanner-result" style="display:none">
+    <div class="card">
+      <div class="card-title">📋 Dades de la taula</div>
+      <div class="card-body" id="scanner-result-body"></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="anarImprimirFromScanner()">🖨 Imprimir etiqueta</button>
+      <button class="btn btn-ghost" onclick="resetScanner()">🔄 Escanejar de nou</button>
+    </div>
+  </div>
+
 </div>
 
 </div><!-- /main -->
@@ -746,6 +798,184 @@ function resetForm() {
   updatePreview();
   window.scrollTo({top:0,behavior:'smooth'});
 }
+
+// ── ESCÀNER QR ────────────────────────────────────────────────────────
+var scannerStream   = null;
+var scannerActive   = false;
+var scannerInterval = null;
+
+// Carregar jsQR dinàmicament
+function loadJsQR(cb) {
+  if (window.jsQR) { cb(); return; }
+  var s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js';
+  s.onload = cb;
+  document.head.appendChild(s);
+}
+
+function startScanner() {
+  loadJsQR(function() {
+    document.getElementById('scanner-status').textContent = 'Accedint a la càmera...';
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+    }).then(function(stream) {
+      scannerStream  = stream;
+      scannerActive  = true;
+      var video = document.getElementById('scanner-video');
+      video.srcObject = stream;
+      video.play();
+      document.getElementById('btn-start-scan').style.display = 'none';
+      document.getElementById('btn-stop-scan').style.display  = 'inline-flex';
+      document.getElementById('scanner-status').textContent   = 'Apunta al codi QR de l\'etiqueta...';
+      scannerInterval = setInterval(scanFrame, 300);
+    }).catch(function(err) {
+      document.getElementById('scanner-status').textContent = 'Error: ' + (err.message||'No s\'ha pogut accedir a la camara');
+    });
+  });
+}
+
+function scanFrame() {
+  if (!scannerActive) return;
+  var video  = document.getElementById('scanner-video');
+  var canvas = document.getElementById('scanner-canvas');
+  if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
+  canvas.width  = video.videoWidth;
+  canvas.height = video.videoHeight;
+  var ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  var code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+  if (code && code.data) {
+    stopScanner();
+    processQR(code.data);
+  }
+}
+
+function stopScanner() {
+  scannerActive = false;
+  if (scannerInterval) { clearInterval(scannerInterval); scannerInterval = null; }
+  if (scannerStream)   { scannerStream.getTracks().forEach(function(t){ t.stop(); }); scannerStream = null; }
+  document.getElementById('scanner-video').srcObject = null;
+  document.getElementById('btn-start-scan').style.display = 'inline-flex';
+  document.getElementById('btn-stop-scan').style.display  = 'none';
+  document.getElementById('scanner-status').textContent   = 'Càmera aturada.';
+}
+
+function resetScanner() {
+  document.getElementById('scanner-result').style.display = 'none';
+  document.getElementById('scanner-status').textContent   = 'Preparat per escanejar.';
+  startScanner();
+}
+
+async function processQR(qrData) {
+  document.getElementById('scanner-status').textContent = 'QR llegit: ' + qrData + ' - Buscant al Sheet...';
+  var taula = null;
+
+  if (!cfg.scriptUrl || !cfg.sheetId) {
+    document.getElementById('scanner-status').textContent = 'Configura la connexio al Sheet (pestanya Configuracio).';
+    renderScannerResultRaw(qrData);
+    return;
+  }
+
+  try {
+    var url  = cfg.scriptUrl + '?sheetId=' + cfg.sheetId + '&sheetName=' + (cfg.sheetName||'Taules_Stock');
+    var res  = await fetch(url);
+    var rows = await res.json();
+    var found = rows.slice(2).find(function(r){ return r[0] === qrData; });
+    if (found) {
+      taula = {
+        id:       found[0]||'', varietat: found[2]||'', proveidor: found[3]||'',
+        amplada:  found[4]||'', alcada:   found[5]||'', gruix:     found[6]||'',
+        posicio:  found[10]||'', estat:   found[11]||'', data:      found[12]||''
+      };
+    }
+  } catch(e) {
+    document.getElementById('scanner-status').textContent = 'Error de connexio al Sheet.';
+    renderScannerResultRaw(qrData);
+    return;
+  }
+
+  if (taula) {
+    renderScannerResult(taula);
+  } else {
+    renderScannerResultRaw(qrData);
+  }
+}
+
+function renderScannerResult(t) {
+  var mesures = [t.amplada, t.alcada, t.gruix].filter(Boolean).join(' x ') + ' cm';
+  var estatCls = (t.estat||'').toLowerCase().replace(/[àáâ]/g,'a').replace(/[èéê]/g,'e');
+  var html = ''
+    + '<div class="id-display" style="margin-bottom:.75rem">'
+    + '<div><span class="id-label">ID / Codi QR</span><span>' + t.id + '</span></div>'
+    + '</div>'
+    + '<table style="width:100%;font-size:.82rem;border-collapse:collapse">'
+    + row('Varietat',  t.varietat)
+    + row('Proveidor', t.proveidor)
+    + row('Mesures',   mesures)
+    + row('Posicio',   '&#128205; ' + t.posicio)
+    + row('Estat',     '<span class="estat-badge estat-' + estatCls + '">' + (t.estat||'-') + '</span>')
+    + row('Data entrada', t.data)
+    + '</table>';
+
+  document.getElementById('scanner-result-body').innerHTML = html;
+  document.getElementById('scanner-result').style.display  = 'block';
+  document.getElementById('scanner-status').textContent    = 'Taula trobada!';
+
+  // Prepara dades per si vol imprimir l'etiqueta
+  window._scannerTaula = t;
+}
+
+function row(label, val) {
+  return '<tr style="border-bottom:1px solid var(--stone-200)">'
+    + '<td style="padding:.4rem .3rem;color:var(--stone-600);font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;width:40%">' + label + '</td>'
+    + '<td style="padding:.4rem .3rem;font-weight:600">' + (val||'-') + '</td>'
+    + '</tr>';
+}
+
+function renderScannerResultRaw(qrData) {
+  document.getElementById('scanner-result-body').innerHTML =
+    '<div class="status show warn"><span>QR llegit: <b>' + qrData + '</b> - No s\'ha trobat al Sheet.</span></div>';
+  document.getElementById('scanner-result').style.display = 'block';
+  window._scannerTaula = null;
+}
+
+function anarImprimirFromScanner() {
+  var t = window._scannerTaula;
+  if (!t) return;
+  // Omple els camps de la pestanya d'impressio
+  document.getElementById('lp-id').textContent       = t.id;
+  document.getElementById('lp-varietat').textContent  = t.varietat||'—';
+  document.getElementById('lp-proveidor').textContent = t.proveidor||'—';
+  document.getElementById('lp-posicio').textContent   = t.posicio||'-';
+  document.getElementById('lp-estat').textContent     = t.estat||'-';
+  var mesures = [t.amplada, t.alcada, t.gruix].filter(Boolean).join(' x ') + ' cm';
+  document.getElementById('lp-mesures').textContent   = mesures;
+  document.getElementById('lp-qualitat').textContent  = 'Qualitat: —';
+  document.getElementById('lp-data').textContent      = t.data||'-';
+  document.getElementById('lp-print-date').textContent= 'Impres: ' + new Date().toLocaleDateString('ca-ES');
+  var qrWrap = document.getElementById('lp-qr-wrap');
+  var qi = document.createElement('img'); qi.src = qrUrl(t.id); qi.alt = 'QR'; qrWrap.innerHTML=''; qrWrap.appendChild(qi);
+  document.getElementById('lp-qr-id').textContent = t.id;
+  // Atura el scanner i ves a imprimir
+  stopScanner();
+  showPanel('imprimir');
+  document.querySelectorAll('.tab-btn').forEach(function(b,i){ b.classList.toggle('active', i===2); });
+}
+
+// Atura el scanner quan es canvia de pestanya
+var _origShowPanel = showPanel;
+showPanel = function(id) {
+  if (id !== 'scanner') stopScanner();
+  _origShowPanel(id);
+  if (id === 'scanner') {
+    document.getElementById('scanner-result').style.display = 'none';
+    document.getElementById('scanner-status').textContent   = 'Preparat per escanejar.';
+    document.getElementById('btn-start-scan').style.display = 'inline-flex';
+    document.getElementById('btn-stop-scan').style.display  = 'none';
+  }
+};
+
 </script>
 
 <style>
