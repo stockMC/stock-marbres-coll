@@ -932,15 +932,33 @@ var scannerActive   = false;
 var scannerInterval = null;
 
 // Carregar jsQR dinàmicament
+// Llista de CDNs alternatius per carregar jsQR
+var JSQR_CDNS = [
+  'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js',
+  'https://unpkg.com/jsqr@1.4.0/dist/jsQR.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js'
+];
+
 function loadJsQR(cb) {
   if (window.jsQR) { cb(); return; }
-  var s = document.createElement('script');
-  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js';
-  s.onload = function() { cb(); };
-  s.onerror = function() {
-    document.getElementById('scanner-status').textContent = 'No s\'ha pogut carregar el lector QR. Comprova la connexio a internet.';
-  };
-  document.head.appendChild(s);
+
+  var idx = 0;
+  function tryNext() {
+    if (idx >= JSQR_CDNS.length) {
+      document.getElementById('scanner-status').textContent =
+        'No s\'ha pogut carregar el lector QR. Usa l\'entrada manual de codi de sota.';
+      return;
+    }
+    var s = document.createElement('script');
+    s.src = JSQR_CDNS[idx];
+    s.onload = function() {
+      if (window.jsQR) { cb(); }
+      else { idx++; tryNext(); }
+    };
+    s.onerror = function() { idx++; tryNext(); };
+    document.head.appendChild(s);
+  }
+  tryNext();
 }
 
 function startScanner() {
@@ -954,7 +972,10 @@ function startScanner() {
 
   statusEl.textContent = 'Carregant lector QR...';
 
-  loadJsQR(function() {
+  // Provar el detector natiu del navegador primer (iOS 16.4+, Chrome Android)
+  var useNative = ('BarcodeDetector' in window);
+
+  var afterLoad = function() {
     statusEl.textContent = 'Demanant permis de camara...';
 
     var constraints = { audio: false, video: { facingMode: { ideal: 'environment' } } };
@@ -993,7 +1014,20 @@ function startScanner() {
       else if (err.message) msg = 'Error: ' + err.message;
       statusEl.textContent = msg;
     });
-  });
+  };
+
+  // Si hi ha detector natiu, no cal jsQR
+  if (useNative) {
+    afterLoad();
+  } else {
+    loadJsQR(afterLoad);
+  }
+}
+
+// Detector natiu (BarcodeDetector) — s'usa dins scanFrame si esta disponible
+var nativeDetector = null;
+if ('BarcodeDetector' in window) {
+  try { nativeDetector = new BarcodeDetector({ formats: ['qr_code'] }); } catch(e) { nativeDetector = null; }
 }
 
 function scanFrame() {
@@ -1005,11 +1039,25 @@ function scanFrame() {
   canvas.height = video.videoHeight;
   var ctx = canvas.getContext('2d');
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  var code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
-  if (code && code.data) {
-    stopScanner();
-    processQR(code.data);
+
+  // Opcio 1: detector natiu del navegador
+  if (nativeDetector) {
+    nativeDetector.detect(canvas).then(function(codes) {
+      if (codes && codes.length > 0 && codes[0].rawValue) {
+        stopScanner();
+        processQR(codes[0].rawValue);
+      }
+    }).catch(function(){});
+    return;
+  }
+  // Opcio 2: jsQR (si s'ha carregat del CDN)
+  if (window.jsQR) {
+    var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    var code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+    if (code && code.data) {
+      stopScanner();
+      processQR(code.data);
+    }
   }
 }
 
