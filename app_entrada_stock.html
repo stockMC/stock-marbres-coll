@@ -197,7 +197,9 @@ header{background:linear-gradient(160deg,#3D0D18 0%,var(--brand-dk) 40%,var(--br
       </div>
       <div class="field">
         <label>Varietat / Tipus <span>✱</span></label>
-        <input type="text" id="varietat" placeholder="ex: Marquina Negre, Blanc Macael…" oninput="updatePreview()">
+        <input type="text" id="varietat" list="materials-list" placeholder="ex: Silestone Blanco, Neolith…" oninput="onVarietatInput()" autocomplete="off">
+        <datalist id="materials-list"></datalist>
+        <span class="field-hint" id="prefix-hint" style="color:var(--brand);font-weight:600"></span>
       </div>
       <div class="field">
         <label>Proveïdor</label>
@@ -451,6 +453,19 @@ function doGet(e) {<br>
         <button class="btn btn-primary" id="btn-start-scan" onclick="startScanner()" style="flex:1;justify-content:center">▶ Iniciar càmera</button>
         <button class="btn btn-ghost" id="btn-stop-scan" onclick="stopScanner()" style="display:none">⏹ Aturar</button>
       </div>
+
+      <div style="display:flex;align-items:center;gap:.6rem;margin:1rem 0 .6rem">
+        <div style="flex:1;height:1px;background:var(--stone-200)"></div>
+        <span style="font-size:.72rem;color:var(--stone-400);font-weight:600">O INTRODUEIX EL CODI</span>
+        <div style="flex:1;height:1px;background:var(--stone-200)"></div>
+      </div>
+
+      <div style="display:flex;gap:.5rem">
+        <input type="text" id="manual-code-input" placeholder="ex: MAR-26-001"
+          style="flex:1;padding:.6rem .8rem;border:1.5px solid var(--stone-200);border-radius:8px;font-family:'DM Mono',monospace;font-size:.9rem;text-transform:uppercase;outline:none"
+          onkeydown="if(event.key==='Enter')buscarCodiManual()">
+        <button class="btn btn-primary" onclick="buscarCodiManual()" style="white-space:nowrap">🔍 Buscar</button>
+      </div>
     </div>
   </div>
 
@@ -489,14 +504,66 @@ window.addEventListener('DOMContentLoaded', function() {
   document.getElementById('cfg-script-url').value = cfg.scriptUrl;
   document.getElementById('id-val').textContent   = currentId;
   document.getElementById('lp-print-date').textContent = 'Imprès: ' + new Date().toLocaleDateString('ca-ES');
+  refreshMaterialsList();
   updatePreview();
 });
 
+// Diccionari de materials apresos: { "silestone": {prefix:"SIL", count:0}, ... }
+var MATERIALS = JSON.parse(localStorage.getItem('materialsDict') || '{}');
+
+// Extreu el prefix (3 primeres lletres, majuscules) del nom del material
+function prefixDe(varietat) {
+  var neta = (varietat||'').trim().replace(/[^a-zA-ZàáâèéêíïòóôúüçñÀÁÂÈÉÊÍÏÒÓÔÚÜÇÑ]/g,'');
+  if (neta.length < 2) return 'MAT';
+  return neta.substring(0,3).toUpperCase();
+}
+
+// Genera el codi a partir de la varietat: SIL-26-001
 function generateId() {
-  var year  = new Date().getFullYear();
-  var count = parseInt(localStorage.getItem('lastCount') || '0') + 1;
-  localStorage.setItem('lastCount', count);
-  return 'MAR-' + year + '-' + String(count).padStart(3,'0');
+  var varietat = document.getElementById('varietat') ? document.getElementById('varietat').value.trim() : '';
+  var prefix   = prefixDe(varietat) || 'MAT';
+  var year2    = String(new Date().getFullYear()).slice(-2);
+
+  // Comptador PER PREFIX
+  var counters = JSON.parse(localStorage.getItem('countersByPrefix') || '{}');
+  var next     = (counters[prefix] || 0) + 1;
+  // NO incrementem encara — nomes en guardar. Aixo evita saltar numeros.
+  return prefix + '-' + year2 + '-' + String(next).padStart(3,'0');
+}
+
+// Incrementa el comptador quan es guarda de veritat
+function consumeId(codi) {
+  var parts  = codi.split('-');
+  var prefix = parts[0];
+  var num    = parseInt(parts[2]) || 0;
+  var counters = JSON.parse(localStorage.getItem('countersByPrefix') || '{}');
+  if (num > (counters[prefix] || 0)) {
+    counters[prefix] = num;
+    localStorage.setItem('countersByPrefix', JSON.stringify(counters));
+  }
+}
+
+// Aprendre un material nou i actualitzar el datalist
+function learnMaterial(varietat) {
+  if (!varietat || varietat.length < 2) return;
+  var key = varietat.trim().toLowerCase();
+  if (!MATERIALS[key]) {
+    MATERIALS[key] = { nom: varietat.trim(), prefix: prefixDe(varietat) };
+    localStorage.setItem('materialsDict', JSON.stringify(MATERIALS));
+    refreshMaterialsList();
+  }
+}
+
+// Refresca el datalist amb tots els materials apresos
+function refreshMaterialsList() {
+  var dl = document.getElementById('materials-list');
+  if (!dl) return;
+  dl.innerHTML = '';
+  Object.keys(MATERIALS).forEach(function(k){
+    var opt = document.createElement('option');
+    opt.value = MATERIALS[k].nom;
+    dl.appendChild(opt);
+  });
 }
 
 function copyId() {
@@ -509,6 +576,21 @@ function copyId() {
 
 function qrUrl(id) {
   return 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(id);
+}
+
+function onVarietatInput() {
+  // Regenera el codi segons el material escrit
+  currentId = generateId();
+  document.getElementById('id-val').textContent = currentId;
+  // Mostra el prefix detectat
+  var v = document.getElementById('varietat').value.trim();
+  var hint = document.getElementById('prefix-hint');
+  if (v.length >= 2) {
+    hint.textContent = 'Codi: ' + currentId + ' (prefix ' + prefixDe(v) + ')';
+  } else {
+    hint.textContent = '';
+  }
+  updatePreview();
 }
 
 function updatePreview() {
@@ -583,6 +665,8 @@ async function guardarEntrada() {
       method: 'POST',
       body: JSON.stringify({ sheetId: cfg.sheetId, sheetName: cfg.sheetName, row: row })
     });
+    consumeId(currentId);       // incrementa el comptador del prefix
+    learnMaterial(varietat);    // apren el material
     showStatus(status,'success','✅ Taula ' + currentId + ' guardada al Google Sheet.');
   } catch(err) {
     showStatus(status,'error','❌ Error de connexió. Comprova l\'Apps Script.');
@@ -618,54 +702,64 @@ function downloadLabel() {
   var mesures   = document.getElementById('lp-mesures').textContent;
   var posicio   = document.getElementById('lp-posicio').textContent;
   var estat     = document.getElementById('lp-estat').textContent;
-  var qualitat  = document.getElementById('lp-qualitat').textContent;
+  var data      = document.getElementById('lp-data').textContent;
   var avui      = new Date().toLocaleDateString('ca-ES');
   var dlStatus  = document.getElementById('dl-status');
 
-  if (!id || id === '—') { showStatus(dlStatus,'warn','⚠️ Omple primer les dades al formulari.'); return; }
+  if (!id || id === '-') { showStatus(dlStatus,'warn','⚠️ Omple primer les dades al formulari.'); return; }
 
-  var W = 455, H = 500;
+  var W = 455, H = 560;
   var canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   var ctx = canvas.getContext('2d');
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,W,H);
-  ctx.fillStyle = '#7B1A2E'; ctx.fillRect(0,0,W,54);
-  ctx.fillStyle = '#ffffff'; ctx.font = 'bold 14px sans-serif';
-  ctx.fillText('MARBRES I PEDRA ARTIFICIAL COLL', 14, 22);
-  ctx.font = '11px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.7)';
-  ctx.fillText(estat, 14, 42);
 
-  var fields = [['ID / CODI QR',id],['VARIETAT',varietat],['PROVEÏDOR',proveidor],['MESURES (cm)',mesures],['POSICIÓ',posicio]];
-  var y = 74;
-  fields.forEach(function(pair) {
-    ctx.font = 'bold 9px sans-serif'; ctx.fillStyle = '#78716c';
-    ctx.fillText(pair[0], 14, y);
-    ctx.font = 'bold 15px sans-serif'; ctx.fillStyle = '#1a1a1a';
-    var v = pair[1] && pair[1].length > 24 ? pair[1].slice(0,24)+'…' : (pair[1]||'—');
-    ctx.fillText(v, 14, y+17);
-    y += 40;
-  });
+  // Header
+  ctx.fillStyle = '#7B1A2E'; ctx.fillRect(0,0,W,44);
+  ctx.fillStyle = '#ffffff'; ctx.font = 'bold 15px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('MARBRES I PEDRA ARTIFICIAL COLL', W/2, 28);
 
-  ctx.fillStyle = '#eeeeee'; ctx.fillRect(0,H-30,W,1);
-  ctx.font = '11px monospace'; ctx.fillStyle = '#9e9e9e';
-  ctx.fillText(qualitat, 14, H-10);
-  ctx.textAlign = 'right';
-  ctx.fillText('Imprès: ' + avui, W-14, H-10);
+  // CODI GRAN
+  ctx.strokeStyle = '#7B1A2E'; ctx.lineWidth = 2;
+  ctx.strokeRect(10, 52, W-20, 72);
+  ctx.fillStyle = '#78716c'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('CODI DE REFERENCIA', W/2, 72);
+  ctx.fillStyle = '#7B1A2E'; ctx.font = 'bold 42px monospace';
+  ctx.fillText(id, W/2, 112);
   ctx.textAlign = 'left';
 
+  // Fields
+  var fields = [['VARIETAT',varietat],['PROVEIDOR',proveidor],['MESURES',mesures],['POSICIO',posicio]];
+  var y = 155;
+  fields.forEach(function(pair){
+    ctx.font = 'bold 10px sans-serif'; ctx.fillStyle = '#78716c';
+    ctx.fillText(pair[0], 16, y);
+    ctx.font = 'bold 17px sans-serif'; ctx.fillStyle = '#1a1a1a';
+    var v = pair[1] && pair[1].length > 26 ? pair[1].slice(0,26)+'...' : (pair[1]||'-');
+    ctx.fillText(v, 16, y+20);
+    y += 46;
+  });
+
+  // Footer
+  ctx.fillStyle = '#eeeeee'; ctx.fillRect(0,H-30,W,1);
+  ctx.font = '11px monospace'; ctx.fillStyle = '#9e9e9e';
+  ctx.fillText(estat, 16, H-10);
+  ctx.textAlign = 'right'; ctx.fillText(data, W-16, H-10); ctx.textAlign='left';
+
+  // QR
   var qrImg = new Image();
   qrImg.crossOrigin = 'anonymous';
   qrImg.onload = function() {
-    ctx.drawImage(qrImg, W-162, 60, 148, 148);
-    ctx.font = '9px monospace'; ctx.fillStyle = '#9e9e9e'; ctx.textAlign = 'center';
-    ctx.fillText(id.length > 16 ? id.slice(0,16)+'…' : id, W-88, 218);
+    ctx.drawImage(qrImg, W-135, 150, 120, 120);
+    ctx.font = '9px monospace'; ctx.fillStyle = '#9e9e9e'; ctx.textAlign='center';
+    ctx.fillText(id, W-75, 280);
     ctx.textAlign = 'left';
     triggerDownload(canvas, id);
     showStatus(dlStatus,'success','✅ Etiqueta descarregada. Obre-la a l\'app Phomemo.');
   };
   qrImg.onerror = function() {
     triggerDownload(canvas, id);
-    showStatus(dlStatus,'warn','⚠️ Descarregada sense QR (cal connexió a internet).');
+    showStatus(dlStatus,'warn','⚠️ Descarregada sense QR (cal connexio).');
   };
   qrImg.src = qrUrl(id);
 }
@@ -684,13 +778,46 @@ function printLabel() {
   var mesures   = document.getElementById('lp-mesures').textContent;
   var posicio   = document.getElementById('lp-posicio').textContent;
   var estat     = document.getElementById('lp-estat').textContent;
-  var qualitat  = document.getElementById('lp-qualitat').textContent;
   var data      = document.getElementById('lp-data').textContent;
   var avui      = new Date().toLocaleDateString('ca-ES');
   var qr        = qrUrl(id);
 
-  var win = window.open('','_blank','width=420,height=350');
-  win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Etiqueta ' + id + '</title><style>@page{size:62mm 100mm;margin:2mm;}*{box-sizing:border-box;margin:0;padding:0;}body{font-family:sans-serif;width:58mm;padding:2mm;-webkit-print-color-adjust:exact;print-color-adjust:exact;}.h{background:#7B1A2E;color:#fff;padding:2.5mm 3mm;border-radius:2mm 2mm 0 0;margin-bottom:1mm;}.h h2{font-size:6pt;font-weight:700;}.h p{font-size:5pt;color:rgba(255,255,255,.7);margin-top:.5mm;}.body{display:flex;gap:2mm;}.fields{flex:1;display:flex;flex-direction:column;gap:1.5mm;}.fl{font-size:4.5pt;text-transform:uppercase;color:#78716c;font-weight:600;}.fv{font-size:8pt;font-weight:700;color:#1a1a1a;line-height:1.2;}.qc{display:flex;flex-direction:column;align-items:center;gap:1mm;}.qc img{width:22mm;height:22mm;}.footer{border-top:.3mm solid #eee;margin-top:1.5mm;padding-top:1mm;display:flex;justify-content:space-between;font-family:monospace;font-size:4pt;color:#9e9e9e;}</style></head><body><div class="h"><h2>MARBRES I PEDRA ARTIFICIAL COLL</h2><p>' + estat + '</p></div><div class="body"><div class="fields"><div><span class="fl">ID</span><div class="fv" style="font-family:monospace;font-size:6.5pt">' + id + '</div></div><div><span class="fl">Varietat</span><div class="fv">' + varietat + '</div></div><div><span class="fl">Proveïdor</span><div class="fv" style="font-size:7pt">' + proveidor + '</div></div><div><span class="fl">Mesures</span><div class="fv" style="font-size:7pt">' + mesures + '</div></div><div><span class="fl">Posició</span><div class="fv">' + posicio + '</div></div><div><span class="fl">Data</span><div class="fv" style="font-size:7pt">' + data + '</div></div></div><div class="qc"><img src="' + qr + '" alt="QR"><span style="font-family:monospace;font-size:3.5pt;color:#9e9e9e">' + id + '</span></div></div><div class="footer"><span>' + qualitat + '</span><span>Imprès: ' + avui + '</span></div><script>window.onload=function(){setTimeout(function(){window.print();},800);}<\/script></body></html>');
+  var win = window.open('','_blank','width=420,height=380');
+  var h = '';
+  h += '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Etiqueta ' + id + '</title>';
+  h += '<style>';
+  h += '@page{size:62mm 100mm;margin:2mm;}';
+  h += '*{box-sizing:border-box;margin:0;padding:0;}';
+  h += 'body{font-family:sans-serif;width:58mm;padding:1mm;-webkit-print-color-adjust:exact;print-color-adjust:exact;}';
+  h += '.hdr{background:#7B1A2E;color:#fff;padding:1.5mm 2mm;border-radius:1.5mm 1.5mm 0 0;text-align:center;}';
+  h += '.hdr h2{font-size:5.5pt;font-weight:700;letter-spacing:.02em;}';
+  h += '.codi-box{border:0.5mm solid #7B1A2E;border-top:none;padding:2mm;text-align:center;margin-bottom:1mm;}';
+  h += '.codi-label{font-size:4pt;text-transform:uppercase;color:#78716c;font-weight:600;letter-spacing:.08em;}';
+  h += '.codi-big{font-family:monospace;font-size:17pt;font-weight:700;color:#7B1A2E;letter-spacing:.03em;line-height:1.1;margin-top:.5mm;}';
+  h += '.body{display:flex;gap:2mm;align-items:flex-start;}';
+  h += '.fields{flex:1;display:flex;flex-direction:column;gap:1.2mm;}';
+  h += '.fl{font-size:4pt;text-transform:uppercase;color:#78716c;font-weight:600;}';
+  h += '.fv{font-size:7.5pt;font-weight:700;color:#1a1a1a;line-height:1.2;}';
+  h += '.qc{display:flex;flex-direction:column;align-items:center;gap:.5mm;}';
+  h += '.qc img{width:20mm;height:20mm;}';
+  h += '.qc span{font-family:monospace;font-size:3.5pt;color:#78716c;}';
+  h += '.footer{border-top:0.3mm solid #e7e5e4;margin-top:1.5mm;padding-top:1mm;display:flex;justify-content:space-between;font-family:monospace;font-size:4pt;color:#a8a29e;}';
+  h += '</style></head><body>';
+  h += '<div class="hdr"><h2>MARBRES I PEDRA ARTIFICIAL COLL</h2></div>';
+  h += '<div class="codi-box"><div class="codi-label">Codi de referencia</div><div class="codi-big">' + id + '</div></div>';
+  h += '<div class="body">';
+  h += '<div class="fields">';
+  h += '<div><span class="fl">Varietat</span><div class="fv">' + varietat + '</div></div>';
+  h += '<div><span class="fl">Proveidor</span><div class="fv" style="font-size:6.5pt">' + proveidor + '</div></div>';
+  h += '<div><span class="fl">Mesures</span><div class="fv" style="font-size:6.5pt">' + mesures + '</div></div>';
+  h += '<div><span class="fl">Posicio</span><div class="fv">' + posicio + '</div></div>';
+  h += '</div>';
+  h += '<div class="qc"><img src="' + qr + '" alt="QR"><span>' + id + '</span></div>';
+  h += '</div>';
+  h += '<div class="footer"><span>' + estat + '</span><span>' + data + '</span></div>';
+  h += '<script>window.onload=function(){setTimeout(function(){window.print();},700);}<\/script>';
+  h += '</body></html>';
+  win.document.write(h);
   win.document.close();
 }
 
@@ -865,6 +992,13 @@ function resetScanner() {
   document.getElementById('scanner-result').style.display = 'none';
   document.getElementById('scanner-status').textContent   = 'Preparat per escanejar.';
   startScanner();
+}
+
+function buscarCodiManual() {
+  var codi = document.getElementById('manual-code-input').value.trim().toUpperCase();
+  if (!codi) { alert('Introdueix un codi.'); return; }
+  stopScanner();
+  processQR(codi);
 }
 
 async function processQR(qrData) {
