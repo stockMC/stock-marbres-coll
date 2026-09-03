@@ -433,7 +433,7 @@ function doGet(e) {<br>
 
       <!-- Zona càmera -->
       <div id="scanner-wrap" style="position:relative;width:100%;background:#000;border-radius:10px;overflow:hidden;aspect-ratio:1;max-width:400px;margin:0 auto">
-        <video id="scanner-video" style="width:100%;height:100%;object-fit:cover" playsinline></video>
+        <video id="scanner-video" style="width:100%;height:100%;object-fit:cover" playsinline autoplay muted webkit-playsinline></video>
         <canvas id="scanner-canvas" style="display:none"></canvas>
         <!-- Visor -->
         <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none">
@@ -936,27 +936,62 @@ function loadJsQR(cb) {
   if (window.jsQR) { cb(); return; }
   var s = document.createElement('script');
   s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js';
-  s.onload = cb;
+  s.onload = function() { cb(); };
+  s.onerror = function() {
+    document.getElementById('scanner-status').textContent = 'No s\'ha pogut carregar el lector QR. Comprova la connexio a internet.';
+  };
   document.head.appendChild(s);
 }
 
 function startScanner() {
+  var statusEl = document.getElementById('scanner-status');
+
+  // Comprovar suport
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    statusEl.textContent = 'El navegador no suporta la camara. Usa Safari o Chrome actualitzat.';
+    return;
+  }
+
+  statusEl.textContent = 'Carregant lector QR...';
+
   loadJsQR(function() {
-    document.getElementById('scanner-status').textContent = 'Accedint a la càmera...';
-    navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
-    }).then(function(stream) {
+    statusEl.textContent = 'Demanant permis de camara...';
+
+    var constraints = { audio: false, video: { facingMode: { ideal: 'environment' } } };
+
+    navigator.mediaDevices.getUserMedia(constraints).then(function(stream) {
       scannerStream  = stream;
       scannerActive  = true;
       var video = document.getElementById('scanner-video');
+      video.setAttribute('playsinline', true);
+      video.setAttribute('webkit-playsinline', true);
+      video.muted = true;
       video.srcObject = stream;
-      video.play();
-      document.getElementById('btn-start-scan').style.display = 'none';
-      document.getElementById('btn-stop-scan').style.display  = 'inline-flex';
-      document.getElementById('scanner-status').textContent   = 'Apunta al codi QR de l\'etiqueta...';
-      scannerInterval = setInterval(scanFrame, 300);
+
+      // iOS: play() retorna una promesa que cal gestionar
+      var playPromise = video.play();
+      if (playPromise !== undefined) {
+        playPromise.then(function() {
+          document.getElementById('btn-start-scan').style.display = 'none';
+          document.getElementById('btn-stop-scan').style.display  = 'inline-flex';
+          statusEl.textContent = 'Apunta al codi QR de l\'etiqueta...';
+          scannerInterval = setInterval(scanFrame, 250);
+        }).catch(function(playErr) {
+          statusEl.textContent = 'No s\'ha pogut iniciar el video: ' + playErr.message;
+        });
+      } else {
+        document.getElementById('btn-start-scan').style.display = 'none';
+        document.getElementById('btn-stop-scan').style.display  = 'inline-flex';
+        statusEl.textContent = 'Apunta al codi QR de l\'etiqueta...';
+        scannerInterval = setInterval(scanFrame, 250);
+      }
     }).catch(function(err) {
-      document.getElementById('scanner-status').textContent = 'Error: ' + (err.message||'No s\'ha pogut accedir a la camara');
+      var msg = 'No s\'ha pogut accedir a la camara.';
+      if (err.name === 'NotAllowedError')      msg = 'Permis de camara denegat. Ves a Configuracio > Safari > Camara i permet l\'acces.';
+      else if (err.name === 'NotFoundError')   msg = 'No s\'ha trobat cap camara.';
+      else if (err.name === 'NotReadableError') msg = 'La camara esta en us per una altra app.';
+      else if (err.message) msg = 'Error: ' + err.message;
+      statusEl.textContent = msg;
     });
   });
 }
