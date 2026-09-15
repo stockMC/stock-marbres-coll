@@ -783,7 +783,7 @@ function downloadLabel() {
     ctx.fillText(id, W-75, 280);
     ctx.textAlign = 'left';
     triggerDownload(canvas, id);
-    showStatus(dlStatus,'success','✅ Etiqueta descarregada. Obre-la a l\'app Phomemo.');
+    showStatus(dlStatus,'success','✅ Etiqueta generada. Al menú que apareix, tria "Desa la imatge" o obre-la directament amb l\'app Phomemo.');
   };
   qrImg.onerror = function() {
     triggerDownload(canvas, id);
@@ -793,10 +793,46 @@ function downloadLabel() {
 }
 
 function triggerDownload(canvas, id) {
-  var a = document.createElement('a');
-  a.download = 'etiqueta-' + id + '.png';
-  a.href = canvas.toDataURL('image/png');
-  a.click();
+  var filename = 'etiqueta-' + id + '.png';
+
+  // Converteix el canvas a blob
+  canvas.toBlob(function(blob) {
+    if (!blob) { fallbackDownload(canvas, filename); return; }
+
+    var file = new File([blob], filename, { type: 'image/png' });
+
+    // Opcio 1: Web Share API amb fitxer (iOS 15+, Android) — obre menu Compartir
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({
+        files: [file],
+        title: 'Etiqueta ' + id
+      }).catch(function() {
+        // Si l'usuari cancel·la o falla, oferim la descarrega normal
+        fallbackDownload(canvas, filename);
+      });
+      return;
+    }
+
+    // Opcio 2: descarrega directa (ordinador, Android sense share)
+    fallbackDownload(canvas, filename, blob);
+  }, 'image/png');
+}
+
+function fallbackDownload(canvas, filename, blob) {
+  try {
+    var url = blob ? URL.createObjectURL(blob) : canvas.toDataURL('image/png');
+    var a = document.createElement('a');
+    a.download = filename;
+    a.href = url;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    if (blob) setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+  } catch(e) {
+    // Ultim recurs: obre la imatge en una pestanya nova per guardar-la manualment
+    var w = window.open('');
+    if (w) w.document.write('<img src="' + canvas.toDataURL('image/png') + '" style="max-width:100%">');
+  }
 }
 
 function printLabel() {
