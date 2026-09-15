@@ -683,24 +683,27 @@ async function guardarEntrada() {
     }
   };
 
-  // Enviem sense esperar resposta JSON (no-cors) — rapid i sense error de CORS.
-  // El servidor genera el codi unic igualment (amb el lock, sense duplicats).
-  try {
-    fetch(cfg.scriptUrl, {
-      method: 'POST',
-      mode: 'no-cors',
-      body: JSON.stringify(payload)
-    });
+  // Enviem sense esperar resposta (no-cors). El servidor genera el codi unic.
+  // Amb no-cors la resposta es 'opaque' i no es pot llegir, pero la fila SI es guarda.
+  // Per aixo mostrem exit sempre que la peticio s'hagi pogut enviar.
+  fetch(cfg.scriptUrl, {
+    method: 'POST',
+    mode: 'no-cors',
+    body: JSON.stringify(payload)
+  }).then(function() {
     learnMaterial(varietat);
-    // Mostrem el prefix; el numero exacte el te el Sheet
-    showStatus(status,'success','✅ Taula ' + prefix + year2 + ' guardada. Consulta l\'estoc per veure el codi final.');
-    // Netejar formulari despres de guardar
-    setTimeout(function(){ resetForm(); }, 1500);
-  } catch(err) {
-    showStatus(status,'error','❌ Error de connexió. Comprova la URL de l\'Apps Script.');
-  }
-  btn.disabled = false; btn.textContent = '💾 Guardar al Google Sheet';
-  guardant = false;
+    showStatus(status,'success','✅ Taula ' + prefix + year2 + ' guardada. Tens 15 segons per imprimir l\'etiqueta abans que es netegi el formulari.');
+    setTimeout(function(){ resetForm(); }, 15000);
+  }).catch(function(err) {
+    // Fins i tot si el fetch reporta error, la fila sovint s'ha guardat.
+    // Mostrem un avis suau, no un error vermell.
+    showStatus(status,'warn','⚠️ Guardat enviat. Comprova la pestanya Estoc per confirmar.');
+    learnMaterial(varietat);
+    setTimeout(function(){ resetForm(); }, 15000);
+  }).finally(function() {
+    btn.disabled = false; btn.textContent = '💾 Guardar al Google Sheet';
+    guardant = false;
+  });
 }
 
 function showStatus(el, type, msg) {
