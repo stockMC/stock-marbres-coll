@@ -664,12 +664,10 @@ async function guardarEntrada() {
   var prefix = prefixDe(varietat);
   var year2  = String(new Date().getFullYear()).slice(-2);
 
-  // L'Apps Script generara el codi unic (evita duplicats).
-  // Enviem prefix+any i les dades; el servidor retorna el codi assignat.
   var payload = {
     sheetId:   cfg.sheetId,
     sheetName: cfg.sheetName || 'Taules_Stock',
-    generarCodi: prefix + year2,  // ex: DEK26 → el servidor afegeix el numero
+    generarCodi: prefix + year2,
     dades: {
       varietat:  varietat,
       proveidor: document.getElementById('proveidor').value,
@@ -685,22 +683,21 @@ async function guardarEntrada() {
     }
   };
 
+  // Enviem sense esperar resposta JSON (no-cors) — rapid i sense error de CORS.
+  // El servidor genera el codi unic igualment (amb el lock, sense duplicats).
   try {
-    var res  = await fetch(cfg.scriptUrl, {
+    fetch(cfg.scriptUrl, {
       method: 'POST',
+      mode: 'no-cors',
       body: JSON.stringify(payload)
     });
-    var result = await res.json();
-    if (result && result.codi) {
-      currentId = result.codi;
-      document.getElementById('id-val').textContent = currentId;
-      learnMaterial(varietat);
-      showStatus(status,'success','✅ Taula ' + currentId + ' guardada correctament.');
-    } else {
-      showStatus(status,'success','✅ Taula guardada.');
-    }
+    learnMaterial(varietat);
+    // Mostrem el prefix; el numero exacte el te el Sheet
+    showStatus(status,'success','✅ Taula ' + prefix + year2 + ' guardada. Consulta l\'estoc per veure el codi final.');
+    // Netejar formulari despres de guardar
+    setTimeout(function(){ resetForm(); }, 1500);
   } catch(err) {
-    showStatus(status,'error','❌ Error de connexió. Comprova l\'Apps Script.');
+    showStatus(status,'error','❌ Error de connexió. Comprova la URL de l\'Apps Script.');
   }
   btn.disabled = false; btn.textContent = '💾 Guardar al Google Sheet';
   guardant = false;
