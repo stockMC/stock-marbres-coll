@@ -197,7 +197,7 @@ header{background:linear-gradient(160deg,#3D0D18 0%,var(--brand-dk) 40%,var(--br
       </div>
       <div class="field">
         <label>Varietat / Tipus <span>✱</span></label>
-        <input type="text" id="varietat" list="materials-list" placeholder="ex: Silestone, Neolith…" oninput="onVarietatInput()" autocomplete="off">
+        <input type="text" id="varietat" list="materials-list" placeholder="ex: Silestone Blanco, Neolith…" oninput="onVarietatInput()" autocomplete="off">
         <datalist id="materials-list"></datalist>
         <span class="field-hint" id="prefix-hint" style="color:var(--brand);font-weight:600"></span>
       </div>
@@ -461,7 +461,7 @@ function doGet(e) {<br>
       </div>
 
       <div style="display:flex;gap:.5rem">
-        <input type="text" id="manual-code-input" placeholder="ex: MAR-26-001"
+        <input type="text" id="manual-code-input" placeholder="ex: MAR26001"
           style="flex:1;padding:.6rem .8rem;border:1.5px solid var(--stone-200);border-radius:8px;font-family:'DM Mono',monospace;font-size:.9rem;text-transform:uppercase;outline:none"
           onkeydown="if(event.key==='Enter')buscarCodiManual()">
         <button class="btn btn-primary" onclick="buscarCodiManual()" style="white-space:nowrap">🔍 Buscar</button>
@@ -508,39 +508,50 @@ window.addEventListener('DOMContentLoaded', function() {
   updatePreview();
 });
 
-// Diccionari de materials apresos: { "silestone": {prefix:"SIL", count:0}, ... }
+// Diccionari de materials apresos: { "silestone": {nom, prefix}, ... }
 var MATERIALS = JSON.parse(localStorage.getItem('materialsDict') || '{}');
+var currentPrefix = 'MAT';
 
 // Extreu el prefix (3 primeres lletres, majuscules) del nom del material
 function prefixDe(varietat) {
-  var neta = (varietat||'').trim().replace(/[^a-zA-ZàáâèéêíïòóôúüçñÀÁÂÈÉÊÍÏÒÓÔÚÜÇÑ]/g,'');
+  var neta = (varietat||'').trim().replace(/[^a-zA-Z0-9]/g,'');
   if (neta.length < 2) return 'MAT';
   return neta.substring(0,3).toUpperCase();
 }
 
-// Genera el codi a partir de la varietat: SIL-26-001
-function generateId() {
-  var varietat = document.getElementById('varietat') ? document.getElementById('varietat').value.trim() : '';
-  var prefix   = prefixDe(varietat) || 'MAT';
-  var year2    = String(new Date().getFullYear()).slice(-2);
+// Genera codi MAR26001 consultant el Sheet per trobar el seguent numero real
+async function generateIdFromSheet(varietat) {
+  var prefix = prefixDe(varietat);
+  var year2  = String(new Date().getFullYear()).slice(-2);
+  var base   = prefix + year2; // ex: MAR26
 
-  // Comptador PER PREFIX
-  var counters = JSON.parse(localStorage.getItem('countersByPrefix') || '{}');
-  var next     = (counters[prefix] || 0) + 1;
-  // NO incrementem encara — nomes en guardar. Aixo evita saltar numeros.
-  return prefix + '-' + year2 + '-' + String(next).padStart(3,'0');
+  var maxNum = 0;
+  if (cfg.scriptUrl && cfg.sheetId) {
+    try {
+      var url  = cfg.scriptUrl + '?sheetId=' + cfg.sheetId + '&sheetName=' + (cfg.sheetName||'Taules_Stock');
+      var res  = await fetch(url);
+      var rows = await res.json();
+      // Buscar tots els codis que comencen amb 'base' i trobar el numero mes alt
+      for (var i = 1; i < rows.length; i++) {
+        var codi = (rows[i][0]||'').toString().toUpperCase();
+        if (codi.indexOf(base) === 0) {
+          var num = parseInt(codi.substring(base.length)) || 0;
+          if (num > maxNum) maxNum = num;
+        }
+      }
+    } catch(e) {}
+  }
+
+  var next = maxNum + 1;
+  return base + String(next).padStart(3,'0'); // MAR26001
 }
 
-// Incrementa el comptador quan es guarda de veritat
-function consumeId(codi) {
-  var parts  = codi.split('-');
-  var prefix = parts[0];
-  var num    = parseInt(parts[2]) || 0;
-  var counters = JSON.parse(localStorage.getItem('countersByPrefix') || '{}');
-  if (num > (counters[prefix] || 0)) {
-    counters[prefix] = num;
-    localStorage.setItem('countersByPrefix', JSON.stringify(counters));
-  }
+// Genera codi provisional (sense consultar Sheet) — nomes per mostrar
+function generateId() {
+  var varietat = document.getElementById('varietat') ? document.getElementById('varietat').value.trim() : '';
+  var prefix   = prefixDe(varietat);
+  var year2    = String(new Date().getFullYear()).slice(-2);
+  return prefix + year2 + '001';
 }
 
 // Aprendre un material nou i actualitzar el datalist
@@ -579,17 +590,18 @@ function qrUrl(id) {
 }
 
 function onVarietatInput() {
-  // Regenera el codi segons el material escrit
-  currentId = generateId();
-  document.getElementById('id-val').textContent = currentId;
-  // Mostra el prefix detectat
   var v = document.getElementById('varietat').value.trim();
   var hint = document.getElementById('prefix-hint');
   if (v.length >= 2) {
-    hint.textContent = 'Codi: ' + currentId + ' (prefix ' + prefixDe(v) + ')';
+    var prefix = prefixDe(v);
+    currentPrefix = prefix;
+    hint.textContent = 'Codi: ' + prefix + String(new Date().getFullYear()).slice(-2) + 'XXX (numero final en guardar)';
   } else {
     hint.textContent = '';
   }
+  // Mostra codi provisional
+  currentId = generateId();
+  document.getElementById('id-val').textContent = currentId;
   updatePreview();
 }
 
@@ -636,14 +648,30 @@ function addPhotos(input, containerId) {
   });
 }
 
+var guardant = false;  // evita doble guardat
+
 async function guardarEntrada() {
+  if (guardant) return;  // ja s'esta guardant, ignora
   var status = document.getElementById('status-entrada');
   var varietat = document.getElementById('varietat').value.trim();
   if (!varietat) { showStatus(status,'error','⚠️ La varietat és obligatòria.'); return; }
   if (!cfg.scriptUrl) { showStatus(status,'warn','⚙️ Configura l\'Apps Script primer (pestanya Configuració).'); return; }
 
+  guardant = true;
   var btn = document.querySelector('#panel-entrada .btn-primary');
-  btn.disabled = true; btn.textContent = '⏳ Guardant…';
+  btn.disabled = true; btn.textContent = '⏳ Generant codi…';
+
+  // GENERAR EL CODI REAL consultant el Sheet
+  var codiFinal;
+  try {
+    codiFinal = await generateIdFromSheet(varietat);
+  } catch(e) {
+    codiFinal = generateId();
+  }
+  currentId = codiFinal;
+  document.getElementById('id-val').textContent = currentId;
+
+  btn.textContent = '⏳ Guardant…';
 
   var row = [
     currentId, '',
@@ -665,13 +693,13 @@ async function guardarEntrada() {
       method: 'POST',
       body: JSON.stringify({ sheetId: cfg.sheetId, sheetName: cfg.sheetName, row: row })
     });
-    consumeId(currentId);       // incrementa el comptador del prefix
-    learnMaterial(varietat);    // apren el material
-    showStatus(status,'success','✅ Taula ' + currentId + ' guardada al Google Sheet.');
+    learnMaterial(varietat);
+    showStatus(status,'success','✅ Taula ' + currentId + ' guardada correctament.');
   } catch(err) {
     showStatus(status,'error','❌ Error de connexió. Comprova l\'Apps Script.');
   }
   btn.disabled = false; btn.textContent = '💾 Guardar al Google Sheet';
+  guardant = false;
 }
 
 function showStatus(el, type, msg) {
@@ -821,24 +849,74 @@ function printLabel() {
   win.document.close();
 }
 
+var carregantStock = false;
+
 async function loadStock() {
   var list = document.getElementById('stock-list');
   if (!cfg.scriptUrl || !cfg.sheetId) {
     list.innerHTML = '<div class="empty-state">⚙️ Configura la connexió a Google Sheets per veure l\'estoc.</div>';
     return;
   }
-  list.innerHTML = '<div class="empty-state">Carregant…</div>';
+  if (carregantStock) return;
+  carregantStock = true;
+  list.innerHTML = '<div class="empty-state">Carregant estoc…</div>';
+
   try {
-    var url = cfg.scriptUrl + '?sheetId=' + cfg.sheetId + '&sheetName=' + cfg.sheetName;
-    var res  = await fetch(url);
+    var url = cfg.scriptUrl + '?sheetId=' + cfg.sheetId + '&sheetName=' + (cfg.sheetName||'Taules_Stock');
+    var res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     var rows = await res.json();
-    stockData = rows.slice(2).map(function(r) {
-      return { id:r[0], varietat:r[2], proveidor:r[3], amplada:r[4], alcada:r[5], gruix:r[6], posicio:r[10], estat:r[11], data:r[12] };
-    }).filter(function(r) { return r.id; });
-    renderStock(stockData);
+
+    if (!Array.isArray(rows) || rows.length < 2) {
+      list.innerHTML = '<div class="empty-state">No hi ha taules registrades encara.</div>';
+      carregantStock = false;
+      return;
+    }
+
+    // Detectar quantes files de capçalera hi ha (busca la primera fila amb un codi valid)
+    var startRow = 1;
+    // Si la fila 1 (index 1) sembla una segona capçalera o esta buida, comença mes avall
+    // Detectem la primera fila que te un ID que sembla codi (conte lletres i numeros)
+    for (var h = 1; h < Math.min(rows.length, 4); h++) {
+      var cell0 = (rows[h][0]||'').toString();
+      if (cell0 && /[A-Z]{2,}[0-9]/i.test(cell0)) { startRow = h; break; }
+    }
+
+    stockData = rows.slice(startRow).map(function(r) {
+      return {
+        id:        (r[0]||'').toString(),
+        varietat:  (r[2]||'').toString(),
+        proveidor: (r[3]||'').toString(),
+        amplada:   r[4], alcada: r[5], gruix: r[6],
+        posicio:   (r[10]||'').toString(),
+        estat:     (r[11]||'').toString(),
+        data:      (r[12]||'').toString()
+      };
+    }).filter(function(r) { return r.id && r.id.length > 2; });
+
+    if (stockData.length === 0) {
+      list.innerHTML = '<div class="empty-state">No hi ha taules registrades encara.</div>';
+    } else {
+      renderStock(stockData);
+    }
   } catch(e) {
-    list.innerHTML = '<div class="empty-state">❌ No s\'ha pogut carregar. Comprova la connexió.</div>';
+    list.innerHTML = '<div class="empty-state">❌ No s\'ha pogut carregar: ' + (e.message||'error de connexió') + '<br><br>Comprova la URL de l\'Apps Script a Configuració.</div>';
   }
+  carregantStock = false;
+}
+
+function formatData(d) {
+  if (!d) return '';
+  // Si es format ISO (2026-06-02T07:00:00.000Z) el converteix a 02/06/2026
+  if (d.indexOf('T') > 0 || /^\d{4}-\d{2}-\d{2}/.test(d)) {
+    try {
+      var dt = new Date(d);
+      if (!isNaN(dt.getTime())) {
+        return String(dt.getDate()).padStart(2,'0') + '/' + String(dt.getMonth()+1).padStart(2,'0') + '/' + dt.getFullYear();
+      }
+    } catch(e) {}
+  }
+  return d;
 }
 
 function renderStock(items) {
@@ -857,7 +935,7 @@ function renderStock(items) {
       '</div>' +
       '<div style="text-align:right;display:flex;flex-direction:column;gap:.3rem;align-items:flex-end">' +
         '<span class="estat-badge estat-' + estat + '">' + (r.estat||'—') + '</span>' +
-        '<span style="font-size:.68rem;color:var(--stone-400)">' + (r.data||'') + '</span>' +
+        '<span style="font-size:.68rem;color:var(--stone-400)">' + formatData(r.data||'') + '</span>' +
       '</div>' +
     '</div>';
   }).join('');
