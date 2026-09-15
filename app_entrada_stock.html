@@ -659,42 +659,46 @@ async function guardarEntrada() {
 
   guardant = true;
   var btn = document.querySelector('#panel-entrada .btn-primary');
-  btn.disabled = true; btn.textContent = '⏳ Generant codi…';
+  btn.disabled = true; btn.textContent = '⏳ Guardant…';
 
-  // GENERAR EL CODI REAL consultant el Sheet
-  var codiFinal;
-  try {
-    codiFinal = await generateIdFromSheet(varietat);
-  } catch(e) {
-    codiFinal = generateId();
-  }
-  currentId = codiFinal;
-  document.getElementById('id-val').textContent = currentId;
+  var prefix = prefixDe(varietat);
+  var year2  = String(new Date().getFullYear()).slice(-2);
 
-  btn.textContent = '⏳ Guardant…';
-
-  var row = [
-    currentId, '',
-    varietat,
-    document.getElementById('proveidor').value,
-    parseFloat(document.getElementById('amplada').value) || '',
-    parseFloat(document.getElementById('alcada').value)  || '',
-    parseFloat(document.getElementById('gruix').value)   || '',
-    parseFloat(document.getElementById('pes').value)     || '',
-    document.getElementById('qualitat').value, '',
-    document.getElementById('posicio').value,
-    document.getElementById('estat').value,
-    new Date().toLocaleDateString('ca-ES'),
-    '', document.getElementById('obs').value, '', ''
-  ];
+  // L'Apps Script generara el codi unic (evita duplicats).
+  // Enviem prefix+any i les dades; el servidor retorna el codi assignat.
+  var payload = {
+    sheetId:   cfg.sheetId,
+    sheetName: cfg.sheetName || 'Taules_Stock',
+    generarCodi: prefix + year2,  // ex: DEK26 → el servidor afegeix el numero
+    dades: {
+      varietat:  varietat,
+      proveidor: document.getElementById('proveidor').value,
+      amplada:   parseFloat(document.getElementById('amplada').value) || '',
+      alcada:    parseFloat(document.getElementById('alcada').value)  || '',
+      gruix:     parseFloat(document.getElementById('gruix').value)   || '',
+      pes:       parseFloat(document.getElementById('pes').value)     || '',
+      qualitat:  document.getElementById('qualitat').value,
+      posicio:   document.getElementById('posicio').value,
+      estat:     document.getElementById('estat').value,
+      data:      new Date().toLocaleDateString('ca-ES'),
+      obs:       document.getElementById('obs').value
+    }
+  };
 
   try {
-    await fetch(cfg.scriptUrl, {
+    var res  = await fetch(cfg.scriptUrl, {
       method: 'POST',
-      body: JSON.stringify({ sheetId: cfg.sheetId, sheetName: cfg.sheetName, row: row })
+      body: JSON.stringify(payload)
     });
-    learnMaterial(varietat);
-    showStatus(status,'success','✅ Taula ' + currentId + ' guardada correctament.');
+    var result = await res.json();
+    if (result && result.codi) {
+      currentId = result.codi;
+      document.getElementById('id-val').textContent = currentId;
+      learnMaterial(varietat);
+      showStatus(status,'success','✅ Taula ' + currentId + ' guardada correctament.');
+    } else {
+      showStatus(status,'success','✅ Taula guardada.');
+    }
   } catch(err) {
     showStatus(status,'error','❌ Error de connexió. Comprova l\'Apps Script.');
   }
