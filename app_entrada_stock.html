@@ -713,7 +713,19 @@ function showStatus(el, type, msg) {
   setTimeout(function() { el.classList.remove('show'); }, 6000);
 }
 
-function anarImprimir() {
+async function anarImprimir() {
+  var varietat = document.getElementById('varietat').value.trim();
+  // Si hi ha varietat i encara no s'ha guardat amb codi real, calcula'l ara
+  if (varietat && cfg.scriptUrl && cfg.sheetId) {
+    var btnP = document.querySelector('#panel-entrada .btn-print');
+    if (btnP) { btnP.textContent = '⏳ Calculant codi…'; }
+    try {
+      currentId = await generateIdFromSheet(varietat);
+      document.getElementById('id-val').textContent = currentId;
+      updatePreview();
+    } catch(e) {}
+    if (btnP) { btnP.textContent = '🖨 Imprimir etiqueta'; }
+  }
   showPanel('imprimir');
   document.querySelectorAll('.tab-btn').forEach(function(b,i) {
     b.classList.toggle('active', i===2);
@@ -960,6 +972,34 @@ function formatData(d) {
   return d;
 }
 
+async function esborrarTaula(id, nom) {
+  if (!id) return;
+  if (!confirm('Segur que vols esborrar ' + id + ' (' + nom + ')?\n\nAquesta accio no es pot desfer.')) return;
+
+  if (!cfg.scriptUrl || !cfg.sheetId) {
+    alert('Cal connexio al Sheet per esborrar.');
+    return;
+  }
+
+  // Enviem ordre d'esborrat a l'Apps Script
+  fetch(cfg.scriptUrl, {
+    method: 'POST',
+    mode: 'no-cors',
+    body: JSON.stringify({
+      sheetId:   cfg.sheetId,
+      sheetName: cfg.sheetName || 'Taules_Stock',
+      esborrarId: id
+    })
+  }).then(function() {
+    // Treure de la vista local immediatament
+    stockData = stockData.filter(function(r){ return r.id !== id; });
+    renderStock(stockData);
+  }).catch(function() {
+    stockData = stockData.filter(function(r){ return r.id !== id; });
+    renderStock(stockData);
+  });
+}
+
 function renderStock(items) {
   var list = document.getElementById('stock-list');
   if (!items.length) { list.innerHTML = '<div class="empty-state">Cap resultat trobat.</div>'; return; }
@@ -967,19 +1007,32 @@ function renderStock(items) {
     var estat = (r.estat||'').toLowerCase().replace(/[àáâ]/g,'a').replace(/[èéê]/g,'e');
     var mides = [r.amplada,r.alcada,r.gruix].filter(Boolean).join('×');
     var rJson = JSON.stringify(r).replace(/"/g,'&quot;');
-    return '<div class="stock-item" onclick="selectStock(' + rJson + ')">' +
-      '<div>' +
+    return '<div class="stock-item">' +
+      '<div style="flex:1;cursor:pointer" onclick="selectStock(' + rJson + ')">' +
         '<div class="si-id">' + (r.id||'') + '</div>' +
         '<div class="si-variety">' + (r.varietat||'—') + '</div>' +
         '<div class="si-details">' + mides + ' cm · ' + (r.proveidor||'') + '</div>' +
         '<div class="si-pos">📍 ' + (r.posicio||'—') + '</div>' +
       '</div>' +
-      '<div style="text-align:right;display:flex;flex-direction:column;gap:.3rem;align-items:flex-end">' +
+      '<div style="text-align:right;display:flex;flex-direction:column;gap:.4rem;align-items:flex-end">' +
         '<span class="estat-badge estat-' + estat + '">' + (r.estat||'—') + '</span>' +
         '<span style="font-size:.68rem;color:var(--stone-400)">' + formatData(r.data||'') + '</span>' +
+        '<button class="btn-del-stock" data-id="' + (r.id||'') + '" data-nom="' + (r.varietat||'').replace(/"/g,'') + '" ' +
+          'style="background:var(--red-l);color:var(--red);border:none;border-radius:6px;padding:.3rem .6rem;font-size:.68rem;font-weight:600;cursor:pointer;font-family:\'Syne\',sans-serif">🗑 Esborrar</button>' +
       '</div>' +
     '</div>';
   }).join('');
+
+  // Event delegation per als botons d'esborrar
+  list.onclick = function(ev) {
+    var del = ev.target.closest('.btn-del-stock');
+    if (del) {
+      ev.stopPropagation();
+      var id  = del.getAttribute('data-id');
+      var nom = del.getAttribute('data-nom');
+      esborrarTaula(id, nom);
+    }
+  };
 }
 
 function filterStock(query) {
