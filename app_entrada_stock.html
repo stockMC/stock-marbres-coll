@@ -651,7 +651,7 @@ function addPhotos(input, containerId) {
 var guardant = false;  // evita doble guardat
 
 async function guardarEntrada() {
-  if (guardant) return;  // ja s'esta guardant, ignora
+  if (guardant) return;
   var status = document.getElementById('status-entrada');
   var varietat = document.getElementById('varietat').value.trim();
   if (!varietat) { showStatus(status,'error','⚠️ La varietat és obligatòria.'); return; }
@@ -659,53 +659,54 @@ async function guardarEntrada() {
 
   guardant = true;
   var btn = document.querySelector('#panel-entrada .btn-primary');
-  btn.disabled = true; btn.textContent = '⏳ Guardant…';
+  btn.disabled = true; btn.textContent = '⏳ Generant codi…';
 
-  var prefix = prefixDe(varietat);
-  var year2  = String(new Date().getFullYear()).slice(-2);
+  // CALCULAR EL CODI REAL consultant el Sheet (aixi el que imprimeixes coincideix)
+  var codiFinal;
+  try {
+    codiFinal = await generateIdFromSheet(varietat);
+  } catch(e) {
+    codiFinal = generateId(); // provisional si falla la consulta
+  }
+  currentId = codiFinal;
+  document.getElementById('id-val').textContent = currentId;
+  updatePreview(); // actualitza la previsualitzacio de l'etiqueta amb el codi real
 
-  var payload = {
-    sheetId:   cfg.sheetId,
-    sheetName: cfg.sheetName || 'Taules_Stock',
-    generarCodi: prefix + year2,
-    dades: {
-      varietat:  varietat,
-      proveidor: document.getElementById('proveidor').value,
-      amplada:   parseFloat(document.getElementById('amplada').value) || '',
-      alcada:    parseFloat(document.getElementById('alcada').value)  || '',
-      gruix:     parseFloat(document.getElementById('gruix').value)   || '',
-      pes:       parseFloat(document.getElementById('pes').value)     || '',
-      qualitat:  document.getElementById('qualitat').value,
-      posicio:   document.getElementById('posicio').value,
-      estat:     document.getElementById('estat').value,
-      data:      new Date().toLocaleDateString('ca-ES'),
-      obs:       document.getElementById('obs').value
-    }
-  };
+  btn.textContent = '⏳ Guardant…';
 
-  // Enviem sense esperar resposta (no-cors). El servidor genera el codi unic.
-  // Amb no-cors la resposta es 'opaque' i no es pot llegir, pero la fila SI es guarda.
-  // Per aixo mostrem exit sempre que la peticio s'hagi pogut enviar.
+  var row = [
+    currentId, '',
+    varietat,
+    document.getElementById('proveidor').value,
+    parseFloat(document.getElementById('amplada').value) || '',
+    parseFloat(document.getElementById('alcada').value)  || '',
+    parseFloat(document.getElementById('gruix').value)   || '',
+    parseFloat(document.getElementById('pes').value)     || '',
+    document.getElementById('qualitat').value, '',
+    document.getElementById('posicio').value,
+    document.getElementById('estat').value,
+    new Date().toLocaleDateString('ca-ES'),
+    '', document.getElementById('obs').value, '', ''
+  ];
+
+  // Guardar amb el codi ja calculat (no-cors, rapid)
   fetch(cfg.scriptUrl, {
     method: 'POST',
     mode: 'no-cors',
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ sheetId: cfg.sheetId, sheetName: cfg.sheetName || 'Taules_Stock', row: row })
   }).then(function() {
     learnMaterial(varietat);
-    showStatus(status,'success','✅ Taula ' + prefix + year2 + ' guardada. Tens 15 segons per imprimir l\'etiqueta abans que es netegi el formulari.');
+    showStatus(status,'success','✅ Taula ' + currentId + ' guardada. Tens 15 segons per imprimir l\'etiqueta.');
     setTimeout(function(){ resetForm(); }, 15000);
-  }).catch(function(err) {
-    // Fins i tot si el fetch reporta error, la fila sovint s'ha guardat.
-    // Mostrem un avis suau, no un error vermell.
-    showStatus(status,'warn','⚠️ Guardat enviat. Comprova la pestanya Estoc per confirmar.');
+  }).catch(function() {
     learnMaterial(varietat);
+    showStatus(status,'warn','⚠️ Guardat enviat (codi ' + currentId + '). Comprova la pestanya Estoc.');
     setTimeout(function(){ resetForm(); }, 15000);
   }).finally(function() {
     btn.disabled = false; btn.textContent = '💾 Guardar al Google Sheet';
     guardant = false;
   });
 }
-
 function showStatus(el, type, msg) {
   el.className = 'status ' + type + ' show';
   el.innerHTML = '<span>' + msg + '</span>';
