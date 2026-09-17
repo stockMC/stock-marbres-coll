@@ -159,6 +159,26 @@ header{background:linear-gradient(160deg,#3D0D18 0%,var(--brand-dk) 40%,var(--br
 .config-field label{font-size:.72rem;font-weight:600;color:var(--stone-600);text-transform:uppercase;letter-spacing:.07em;}
 .config-field input{padding:.55rem .8rem;border:1.5px solid var(--stone-200);border-radius:7px;font-family:'DM Mono',monospace;font-size:.82rem;background:var(--stone-50);outline:none;color:var(--ink);}
 .config-field input:focus{border-color:var(--brand);}
+
+/* DETALL TAULA */
+.detall-header{display:flex;align-items:flex-start;justify-content:space-between;gap:.6rem;margin-bottom:.8rem;padding-bottom:.7rem;border-bottom:1px solid var(--stone-200);}
+.detall-id{font-family:'DM Mono',monospace;font-size:.75rem;color:var(--stone-400);}
+.detall-varietat{font-size:1rem;font-weight:700;margin-top:.1rem;}
+.detall-fotos{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-bottom:.9rem;}
+.detall-foto{border-radius:8px;overflow:hidden;border:1px solid var(--stone-200);}
+.df-label{font-size:.62rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--stone-600);padding:.4rem .6rem;background:var(--stone-50);}
+.detall-foto img{width:100%;height:130px;object-fit:cover;display:block;cursor:pointer;}
+.detall-grid{display:flex;flex-direction:column;gap:0;margin-bottom:.9rem;}
+.detall-row{display:flex;justify-content:space-between;padding:.5rem .2rem;border-bottom:1px solid var(--stone-100);font-size:.85rem;}
+.detall-row:last-child{border-bottom:none;}
+.dr-label{color:var(--stone-600);font-weight:500;}
+.dr-val{font-weight:600;text-align:right;}
+.detall-estat-canvi{background:var(--stone-50);border-radius:8px;padding:.7rem .8rem;}
+.dec-label{font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--stone-600);margin-bottom:.5rem;}
+.dec-btns{display:grid;grid-template-columns:1fr 1fr;gap:.4rem;}
+.dec-btn{padding:.5rem;border:1.5px solid var(--stone-200);border-radius:7px;background:#fff;font-family:'Syne',sans-serif;font-size:.8rem;font-weight:600;cursor:pointer;color:var(--ink);}
+.dec-btn:hover{border-color:var(--brand);}
+.dec-actiu{background:var(--brand);color:#fff;border-color:var(--brand);}
 </style>
 </head>
 <body>
@@ -197,7 +217,7 @@ header{background:linear-gradient(160deg,#3D0D18 0%,var(--brand-dk) 40%,var(--br
       </div>
       <div class="field">
         <label>Varietat / Tipus <span>✱</span></label>
-        <input type="text" id="varietat" list="materials-list" placeholder="ex: Silestone Blanco Norte, Dekton Aeris…" oninput="onVarietatInput()" autocomplete="off">
+        <input type="text" id="varietat" list="materials-list" placeholder="ex: Silestone Blanco, Neolith…" oninput="onVarietatInput()" autocomplete="off">
         <datalist id="materials-list"></datalist>
         <span class="field-hint" id="prefix-hint" style="color:var(--brand);font-weight:600"></span>
       </div>
@@ -368,6 +388,14 @@ header{background:linear-gradient(160deg,#3D0D18 0%,var(--brand-dk) 40%,var(--br
       </div>
     </div>
   </div>
+
+  <div class="card" id="card-detall" style="display:none">
+    <div class="card-title">📋 Detall complet de la taula</div>
+    <div class="card-body">
+      <div id="detall-taula"></div>
+    </div>
+  </div>
+
 </div>
 
 <!-- CONFIGURACIÓ -->
@@ -634,18 +662,41 @@ function updatePreview() {
   document.getElementById('lp-qr-id').textContent = id;
 }
 
+var fotoEtiquetaData = null;
+var fotoTaulaData   = null;
+
 function addPhotos(input, containerId) {
   var container = document.getElementById(containerId);
-  Array.from(input.files).forEach(function(file) {
-    var reader = new FileReader();
-    reader.onload = function(e) {
-      var img = document.createElement('img');
-      img.src = e.target.result;
-      img.className = 'photo-thumb';
-      container.appendChild(img);
+  var file = input.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    // Redimensionar la foto per no fer-la massa pesada
+    var img = new Image();
+    img.onload = function() {
+      var canvas = document.createElement('canvas');
+      var maxW = 900;
+      var scale = Math.min(1, maxW / img.width);
+      canvas.width  = img.width * scale;
+      canvas.height = img.height * scale;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      var compressed = canvas.toDataURL('image/jpeg', 0.7);
+
+      // Guardar segons quin camp
+      if (containerId === 'photos-etiqueta') fotoEtiquetaData = compressed;
+      if (containerId === 'photos-taula')    fotoTaulaData    = compressed;
+
+      // Mostrar miniatura
+      container.innerHTML = '';
+      var thumb = document.createElement('img');
+      thumb.src = compressed;
+      thumb.className = 'photo-thumb';
+      container.appendChild(thumb);
     };
-    reader.readAsDataURL(file);
-  });
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
 }
 
 var guardant = false;  // evita doble guardat
@@ -693,7 +744,7 @@ async function guardarEntrada() {
   fetch(cfg.scriptUrl, {
     method: 'POST',
     mode: 'no-cors',
-    body: JSON.stringify({ sheetId: cfg.sheetId, sheetName: cfg.sheetName || 'Taules_Stock', row: row })
+    body: JSON.stringify({ sheetId: cfg.sheetId, sheetName: cfg.sheetName || 'Taules_Stock', generarCodi: base, fotoEtiqueta: fotoEtiquetaData, fotoTaula: fotoTaulaData, dades: { varietat: varietat, proveidor: document.getElementById('proveidor').value, amplada: parseFloat(document.getElementById('amplada').value)||'', alcada: parseFloat(document.getElementById('alcada').value)||'', gruix: parseFloat(document.getElementById('gruix').value)||'', pes: parseFloat(document.getElementById('pes').value)||'', qualitat: document.getElementById('qualitat').value, posicio: document.getElementById('posicio').value, estat: document.getElementById('estat').value, data: new Date().toLocaleDateString('ca-ES'), obs: document.getElementById('obs').value } })
   }).then(function() {
     learnMaterial(varietat);
     showStatus(status,'success','✅ Taula ' + currentId + ' guardada. Tens 15 segons per imprimir l\'etiqueta.');
@@ -714,6 +765,7 @@ function showStatus(el, type, msg) {
 }
 
 async function anarImprimir() {
+  var cd = document.getElementById('card-detall'); if (cd) cd.style.display = 'none';
   var varietat = document.getElementById('varietat').value.trim();
   // Si hi ha varietat i encara no s'ha guardat amb codi real, calcula'l ara
   if (varietat && cfg.scriptUrl && cfg.sheetId) {
@@ -941,9 +993,14 @@ async function loadStock() {
         varietat:  (r[2]||'').toString(),
         proveidor: (r[3]||'').toString(),
         amplada:   r[4], alcada: r[5], gruix: r[6],
+        pes:       r[7],
+        qualitat:  (r[8]||'').toString(),
         posicio:   (r[10]||'').toString(),
         estat:     (r[11]||'').toString(),
-        data:      (r[12]||'').toString()
+        data:      (r[12]||'').toString(),
+        obs:       (r[14]||'').toString(),
+        fotoEtiqueta: (r[15]||'').toString(),
+        fotoTaula:    (r[16]||'').toString()
       };
     }).filter(function(r) { return r.id && r.id.length > 2; });
 
@@ -1046,7 +1103,11 @@ function filterStock(query) {
   renderStock(filtered);
 }
 
+var taulaSeleccionada = null;
+
 function selectStock(r) {
+  taulaSeleccionada = r;
+  // Omplir la previsualitzacio d'impressio
   document.getElementById('lp-id').textContent       = r.id||'—';
   document.getElementById('lp-varietat').textContent  = r.varietat||'—';
   document.getElementById('lp-proveidor').textContent = r.proveidor||'—';
@@ -1054,11 +1115,93 @@ function selectStock(r) {
   document.getElementById('lp-estat').textContent     = r.estat||'—';
   var mesures = [r.amplada,r.alcada,r.gruix].filter(Boolean).join('×') + ' cm';
   document.getElementById('lp-mesures').textContent = mesures;
+  document.getElementById('lp-qualitat').textContent = 'Qualitat: ' + (r.qualitat||'—');
+  document.getElementById('lp-data').textContent = formatData(r.data||'');
   var qrWrap = document.getElementById('lp-qr-wrap');
   var qrImg2 = document.createElement('img'); qrImg2.src = qrUrl(r.id); qrImg2.alt = 'QR'; qrWrap.innerHTML = ''; qrWrap.appendChild(qrImg2);
   document.getElementById('lp-qr-id').textContent = r.id;
+
+  // Omplir el detall complet
+  document.getElementById('card-detall').style.display = 'block';
+  renderDetallTaula(r);
   showPanel('imprimir');
   document.querySelectorAll('.tab-btn').forEach(function(b,i) { b.classList.toggle('active', i===2); });
+}
+
+function fotoDriveUrl(url) {
+  // Converteix uc?id= a format que es pot mostrar
+  if (!url) return '';
+  var m = url.match(/id=([^&]+)/);
+  if (m) return 'https://drive.google.com/thumbnail?id=' + m[1] + '&sz=w600';
+  return url;
+}
+
+function renderDetallTaula(r) {
+  var cont = document.getElementById('detall-taula');
+  if (!cont) return;
+
+  var mesures = [r.amplada,r.alcada,r.gruix].filter(Boolean).join(' × ') + ' cm';
+  var estatCls = (r.estat||'').toLowerCase().replace(/[àáâ]/g,'a').replace(/[èéê]/g,'e');
+
+  var html = '<div class="detall-header">';
+  html += '<div><div class="detall-id">' + (r.id||'') + '</div>';
+  html += '<div class="detall-varietat">' + (r.varietat||'—') + '</div></div>';
+  html += '<span class="estat-badge estat-' + estatCls + '" style="font-size:.72rem">' + (r.estat||'—') + '</span>';
+  html += '</div>';
+
+  // Fotos
+  var fotos = '';
+  if (r.fotoTaula)    fotos += '<div class="detall-foto"><div class="df-label">Foto taula</div><img src="' + fotoDriveUrl(r.fotoTaula) + '" onclick="window.open(\'' + r.fotoTaula + '\',\'_blank\')" onerror="this.parentNode.style.display=\'none\'"></div>';
+  if (r.fotoEtiqueta) fotos += '<div class="detall-foto"><div class="df-label">Etiqueta fabricant</div><img src="' + fotoDriveUrl(r.fotoEtiqueta) + '" onclick="window.open(\'' + r.fotoEtiqueta + '\',\'_blank\')" onerror="this.parentNode.style.display=\'none\'"></div>';
+  if (fotos) html += '<div class="detall-fotos">' + fotos + '</div>';
+  else html += '<div style="font-size:.78rem;color:var(--stone-400);padding:.5rem 0">Sense fotos guardades.</div>';
+
+  // Detalls
+  html += '<div class="detall-grid">';
+  html += detallRow('Proveïdor', r.proveidor);
+  html += detallRow('Mesures', mesures);
+  html += detallRow('Pes', r.pes ? r.pes + ' kg' : '');
+  html += detallRow('Qualitat', r.qualitat);
+  html += detallRow('Posició', r.posicio);
+  html += detallRow('Data entrada', formatData(r.data||''));
+  if (r.obs) html += detallRow('Observacions', r.obs);
+  html += '</div>';
+
+  // Canvi d'estat
+  html += '<div class="detall-estat-canvi">';
+  html += '<div class="dec-label">Canviar estat:</div>';
+  html += '<div class="dec-btns">';
+  ['Disponible','Reservat','Tallat','Baixa'].forEach(function(e){
+    var actiu = (r.estat||'') === e;
+    html += '<button class="dec-btn' + (actiu?' dec-actiu':'') + '" onclick="canviarEstat(\'' + r.id + '\',\'' + e + '\')">' + e + '</button>';
+  });
+  html += '</div></div>';
+
+  cont.innerHTML = html;
+}
+
+function detallRow(label, val) {
+  if (!val && val !== 0) val = '—';
+  return '<div class="detall-row"><span class="dr-label">' + label + '</span><span class="dr-val">' + val + '</span></div>';
+}
+
+async function canviarEstat(id, nouEstat) {
+  if (!cfg.scriptUrl || !cfg.sheetId) { alert('Cal connexió al Sheet.'); return; }
+
+  fetch(cfg.scriptUrl, {
+    method: 'POST',
+    mode: 'no-cors',
+    body: JSON.stringify({
+      sheetId:   cfg.sheetId,
+      sheetName: cfg.sheetName || 'Taules_Stock',
+      canviarEstat: { id: id, estat: nouEstat }
+    })
+  });
+
+  // Actualitzar localment
+  var t = stockData.find(function(x){ return x.id === id; });
+  if (t) { t.estat = nouEstat; if (taulaSeleccionada && taulaSeleccionada.id === id) taulaSeleccionada.estat = nouEstat; renderDetallTaula(t); }
+  document.getElementById('lp-estat').textContent = nouEstat;
 }
 
 function showPanel(id) {
@@ -1091,6 +1234,8 @@ function resetForm() {
   document.getElementById('estat').value    = 'Disponible';
   document.getElementById('photos-etiqueta').innerHTML = '';
   document.getElementById('photos-taula').innerHTML    = '';
+  fotoEtiquetaData = null;
+  fotoTaulaData    = null;
   document.getElementById('status-entrada').classList.remove('show');
   currentId = generateId();
   document.getElementById('id-val').textContent = currentId;
