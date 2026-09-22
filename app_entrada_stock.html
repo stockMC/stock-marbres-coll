@@ -725,29 +725,40 @@ async function guardarEntrada() {
 
   btn.textContent = '⏳ Guardant…';
 
-  var row = [
-    currentId, '',
-    varietat,
-    document.getElementById('proveidor').value,
-    parseFloat(document.getElementById('amplada').value) || '',
-    parseFloat(document.getElementById('alcada').value)  || '',
-    parseFloat(document.getElementById('gruix').value)   || '',
-    parseFloat(document.getElementById('pes').value)     || '',
-    document.getElementById('qualitat').value, '',
-    document.getElementById('posicio').value,
-    document.getElementById('estat').value,
-    new Date().toLocaleDateString('ca-ES'),
-    '', document.getElementById('obs').value, '', ''
-  ];
+  var teFotos = (fotoEtiquetaData || fotoTaulaData);
+  if (teFotos) btn.textContent = '⏳ Pujant fotos…';
 
-  // Guardar amb el codi ja calculat (no-cors, rapid)
+  // Guardar amb el codi ja calculat + fotos. Usem 'guardarDirecte' amb el codi
+  // ja assignat (currentId), aixi el servidor no el recalcula.
+  var payload = {
+    sheetId:      cfg.sheetId,
+    sheetName:    cfg.sheetName || 'Taules_Stock',
+    guardarCodi:  currentId,
+    fotoEtiqueta: fotoEtiquetaData,
+    fotoTaula:    fotoTaulaData,
+    dades: {
+      varietat:  varietat,
+      proveidor: document.getElementById('proveidor').value,
+      amplada:   parseFloat(document.getElementById('amplada').value) || '',
+      alcada:    parseFloat(document.getElementById('alcada').value)  || '',
+      gruix:     parseFloat(document.getElementById('gruix').value)   || '',
+      pes:       parseFloat(document.getElementById('pes').value)     || '',
+      qualitat:  document.getElementById('qualitat').value,
+      posicio:   document.getElementById('posicio').value,
+      estat:     document.getElementById('estat').value,
+      data:      new Date().toLocaleDateString('ca-ES'),
+      obs:       document.getElementById('obs').value
+    }
+  };
+
   fetch(cfg.scriptUrl, {
     method: 'POST',
     mode: 'no-cors',
-    body: JSON.stringify({ sheetId: cfg.sheetId, sheetName: cfg.sheetName || 'Taules_Stock', generarCodi: base, fotoEtiqueta: fotoEtiquetaData, fotoTaula: fotoTaulaData, dades: { varietat: varietat, proveidor: document.getElementById('proveidor').value, amplada: parseFloat(document.getElementById('amplada').value)||'', alcada: parseFloat(document.getElementById('alcada').value)||'', gruix: parseFloat(document.getElementById('gruix').value)||'', pes: parseFloat(document.getElementById('pes').value)||'', qualitat: document.getElementById('qualitat').value, posicio: document.getElementById('posicio').value, estat: document.getElementById('estat').value, data: new Date().toLocaleDateString('ca-ES'), obs: document.getElementById('obs').value } })
+    body: JSON.stringify(payload)
   }).then(function() {
     learnMaterial(varietat);
-    showStatus(status,'success','✅ Taula ' + currentId + ' guardada. Tens 15 segons per imprimir l\'etiqueta.');
+    var msg = teFotos ? '✅ Taula ' + currentId + ' guardada amb fotos. Tens 15 segons per imprimir.' : '✅ Taula ' + currentId + ' guardada. Tens 15 segons per imprimir l\'etiqueta.';
+    showStatus(status,'success',msg);
     setTimeout(function(){ resetForm(); }, 15000);
   }).catch(function() {
     learnMaterial(varietat);
