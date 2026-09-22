@@ -561,10 +561,13 @@ async function generateIdFromSheet(varietat) {
       var rows = await res.json();
       // Buscar tots els codis que comencen amb 'base' i trobar el numero mes alt
       for (var i = 1; i < rows.length; i++) {
-        var codi = (rows[i][0]||'').toString().toUpperCase();
-        if (codi.indexOf(base) === 0) {
-          var num = parseInt(codi.substring(base.length)) || 0;
-          if (num > maxNum) maxNum = num;
+        var codi = (rows[i][0]||'').toString().toUpperCase().trim();
+        if (codi.length > base.length && codi.substring(0, base.length) === base) {
+          var resta = codi.substring(base.length);
+          if (/^[0-9]+$/.test(resta)) {
+            var num = parseInt(resta, 10);
+            if (num > maxNum) maxNum = num;
+          }
         }
       }
     } catch(e) {}
@@ -710,30 +713,20 @@ async function guardarEntrada() {
 
   guardant = true;
   var btn = document.querySelector('#panel-entrada .btn-primary');
-  btn.disabled = true; btn.textContent = '⏳ Generant codi…';
+  btn.disabled = true; btn.textContent = '⏳ Guardant…';
 
-  // CALCULAR EL CODI REAL consultant el Sheet (aixi el que imprimeixes coincideix)
-  var codiFinal;
-  try {
-    codiFinal = await generateIdFromSheet(varietat);
-  } catch(e) {
-    codiFinal = generateId(); // provisional si falla la consulta
-  }
-  currentId = codiFinal;
-  document.getElementById('id-val').textContent = currentId;
-  updatePreview(); // actualitza la previsualitzacio de l'etiqueta amb el codi real
-
-  btn.textContent = '⏳ Guardant…';
-
+  var prefix = prefixDe(varietat);
+  var year2  = String(new Date().getFullYear()).slice(-2);
+  var base   = prefix + year2;
   var teFotos = (fotoEtiquetaData || fotoTaulaData);
   if (teFotos) btn.textContent = '⏳ Pujant fotos…';
 
-  // Guardar amb el codi ja calculat + fotos. Usem 'guardarDirecte' amb el codi
-  // ja assignat (currentId), aixi el servidor no el recalcula.
+  // El SERVIDOR genera el codi (amb lock, serialitza peticions = SENSE duplicats).
+  // Enviem generarCodi=base i el servidor afegeix el numero correcte.
   var payload = {
     sheetId:      cfg.sheetId,
     sheetName:    cfg.sheetName || 'Taules_Stock',
-    guardarCodi:  currentId,
+    generarCodi:  base,
     fotoEtiqueta: fotoEtiquetaData,
     fotoTaula:    fotoTaulaData,
     dades: {
@@ -751,23 +744,56 @@ async function guardarEntrada() {
     }
   };
 
-  fetch(cfg.scriptUrl, {
-    method: 'POST',
-    mode: 'no-cors',
-    body: JSON.stringify(payload)
-  }).then(function() {
+  try {
+    await fetch(cfg.scriptUrl, {
+      method: 'POST',
+      mode: 'no-cors',
+      body: JSON.stringify(payload)
+    });
+
     learnMaterial(varietat);
-    var msg = teFotos ? '✅ Taula ' + currentId + ' guardada amb fotos. Tens 15 segons per imprimir.' : '✅ Taula ' + currentId + ' guardada. Tens 15 segons per imprimir l\'etiqueta.';
-    showStatus(status,'success',msg);
+
+    // Esperar que el servidor escrigui, despres rellegir per saber el codi REAL
+    btn.textContent = '⏳ Confirmant codi…';
+    await new Promise(function(res){ setTimeout(res, 2500); });
+
+    var codiReal = base + '???';
+    try {
+      var url  = cfg.scriptUrl + '?sheetId=' + cfg.sheetId + '&sheetName=' + (cfg.sheetName||'Taules_Stock');
+      var res  = await fetch(url);
+      var rows = await res.json();
+      // Trobar el codi mes alt d'aquest prefix (l'acabat de crear)
+      var maxNum = 0;
+      for (var i = 1; i < rows.length; i++) {
+        var codi = (rows[i][0]||'').toString().toUpperCase().trim();
+        if (codi.length > base.length && codi.substring(0, base.length) === base) {
+          var resta = codi.substring(base.length);
+          if (/^[0-9]+$/.test(resta)) {
+            var num = parseInt(resta, 10);
+            if (num > maxNum) maxNum = num;
+          }
+        }
+      }
+      if (maxNum > 0) codiReal = base + String(maxNum).padStart(3,'0');
+    } catch(e) {}
+
+    // Actualitzar el codi mostrat i l'etiqueta amb el REAL
+    currentId = codiReal;
+    document.getElementById('id-val').textContent = currentId;
+    updatePreview();
+
+    var msg = teFotos ? '✅ Taula ' + currentId + ' guardada amb fotos. Ja pots imprimir l\'etiqueta.' : '✅ Taula ' + currentId + ' guardada. Ja pots imprimir l\'etiqueta.';
+    showStatus(status,'success',msg + ' Es netejara en 15 segons.');
     setTimeout(function(){ resetForm(); }, 15000);
-  }).catch(function() {
+
+  } catch(err) {
+    showStatus(status,'warn','⚠️ Guardat enviat. Comprova la pestanya Estoc per veure el codi.');
     learnMaterial(varietat);
-    showStatus(status,'warn','⚠️ Guardat enviat (codi ' + currentId + '). Comprova la pestanya Estoc.');
     setTimeout(function(){ resetForm(); }, 15000);
-  }).finally(function() {
-    btn.disabled = false; btn.textContent = '💾 Guardar al Google Sheet';
-    guardant = false;
-  });
+  }
+
+  btn.disabled = false; btn.textContent = '💾 Guardar al Google Sheet';
+  guardant = false;
 }
 function showStatus(el, type, msg) {
   el.className = 'status ' + type + ' show';
