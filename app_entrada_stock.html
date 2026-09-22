@@ -800,59 +800,74 @@ function downloadLabel() {
   var posicio   = document.getElementById('lp-posicio').textContent;
   var estat     = document.getElementById('lp-estat').textContent;
   var data      = document.getElementById('lp-data').textContent;
-  var avui      = new Date().toLocaleDateString('ca-ES');
   var dlStatus  = document.getElementById('dl-status');
 
   if (!id || id === '-') { showStatus(dlStatus,'warn','⚠️ Omple primer les dades al formulari.'); return; }
 
-  var W = 455, H = 560;
+  // 10x15cm ratio 2:3 → 800 x 1200 px
+  var W = 800, H = 1200;
   var canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   var ctx = canvas.getContext('2d');
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,W,H);
 
+  var M = 30; // marge
+
+  // ── BLOC SUPERIOR (0 a ~470) ──
+  // Border
+  ctx.strokeStyle = '#7B1A2E'; ctx.lineWidth = 3;
+  ctx.strokeRect(M, M, W-2*M, 440);
   // Header
-  ctx.fillStyle = '#7B1A2E'; ctx.fillRect(0,0,W,44);
-  ctx.fillStyle = '#ffffff'; ctx.font = 'bold 15px sans-serif'; ctx.textAlign='center';
-  ctx.fillText('MARBRES I PEDRA ARTIFICIAL COLL', W/2, 28);
-
-  // CODI GRAN
-  ctx.strokeStyle = '#7B1A2E'; ctx.lineWidth = 2;
-  ctx.strokeRect(10, 52, W-20, 72);
-  ctx.fillStyle = '#78716c'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign='center';
-  ctx.fillText('CODI DE REFERENCIA', W/2, 72);
-  ctx.fillStyle = '#7B1A2E'; ctx.font = 'bold 42px monospace';
-  ctx.fillText(id, W/2, 112);
+  ctx.fillStyle = '#7B1A2E'; ctx.fillRect(M, M, W-2*M, 52);
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 22px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('MARBRES I PEDRA ARTIFICIAL COLL', W/2, M+34);
+  // Codi de referencia
+  ctx.fillStyle = '#78716c'; ctx.font = 'bold 15px sans-serif';
+  ctx.fillText('CODI DE REFERENCIA', W/2, M+90);
+  ctx.fillStyle = '#7B1A2E'; ctx.font = 'bold 60px monospace';
+  ctx.fillText(id, W/2, M+150);
   ctx.textAlign = 'left';
-
-  // Fields
+  // Linia separadora
+  ctx.strokeStyle = '#e7e5e4'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(M, M+175); ctx.lineTo(W-M, M+175); ctx.stroke();
+  // Dades
   var fields = [['VARIETAT',varietat],['PROVEIDOR',proveidor],['MESURES',mesures],['POSICIO',posicio]];
-  var y = 155;
-  fields.forEach(function(pair){
-    ctx.font = 'bold 10px sans-serif'; ctx.fillStyle = '#78716c';
-    ctx.fillText(pair[0], 16, y);
-    ctx.font = 'bold 17px sans-serif'; ctx.fillStyle = '#1a1a1a';
-    var v = pair[1] && pair[1].length > 26 ? pair[1].slice(0,26)+'...' : (pair[1]||'-');
-    ctx.fillText(v, 16, y+20);
-    y += 46;
+  var fy = M+215;
+  fields.forEach(function(p){
+    ctx.font = 'bold 14px sans-serif'; ctx.fillStyle = '#78716c';
+    ctx.fillText(p[0], M+25, fy);
+    ctx.font = 'bold 24px sans-serif'; ctx.fillStyle = '#1a1a1a';
+    var v = p[1] && p[1].length > 24 ? p[1].slice(0,24)+'...' : (p[1]||'-');
+    ctx.fillText(v, M+25, fy+28);
+    fy += 62;
   });
+  // Footer del bloc superior
+  ctx.strokeStyle = '#e7e5e4'; ctx.beginPath(); ctx.moveTo(M, M+415); ctx.lineTo(W-M, M+415); ctx.stroke();
+  ctx.font = '13px monospace'; ctx.fillStyle = '#a8a29e';
+  ctx.fillText(estat, M+25, M+433);
+  ctx.textAlign='right'; ctx.fillText(data, W-M-25, M+433); ctx.textAlign='left';
 
-  // Footer
-  ctx.fillStyle = '#eeeeee'; ctx.fillRect(0,H-30,W,1);
-  ctx.font = '11px monospace'; ctx.fillStyle = '#9e9e9e';
-  ctx.fillText(estat, 16, H-10);
-  ctx.textAlign = 'right'; ctx.fillText(data, W-16, H-10); ctx.textAlign='left';
+  // ── BLOCS INFERIORS (codi gran repetit) ──
+  // Bloc mig
+  ctx.strokeStyle = '#7B1A2E'; ctx.lineWidth = 3;
+  ctx.strokeRect(M, 510, W-2*M, 320);
+  ctx.fillStyle = '#7B1A2E'; ctx.font = 'bold 90px monospace'; ctx.textAlign='center';
+  ctx.fillText(id, W/2, 690);
+  // Bloc baix
+  ctx.strokeRect(M, 850, W-2*M, 320);
+  ctx.fillText(id, W/2, 1030);
+  ctx.textAlign='left';
 
-  // QR
+  // ── QR (dins el bloc superior, dreta) ──
   var qrImg = new Image();
   qrImg.crossOrigin = 'anonymous';
   qrImg.onload = function() {
-    ctx.drawImage(qrImg, W-135, 150, 120, 120);
-    ctx.font = '9px monospace'; ctx.fillStyle = '#9e9e9e'; ctx.textAlign='center';
-    ctx.fillText(id, W-75, 280);
-    ctx.textAlign = 'left';
+    ctx.drawImage(qrImg, W-M-155, M+195, 130, 130);
+    ctx.font = '11px monospace'; ctx.fillStyle = '#78716c'; ctx.textAlign='center';
+    ctx.fillText(id, W-M-90, M+340);
+    ctx.textAlign='left';
     triggerDownload(canvas, id);
-    showStatus(dlStatus,'success','✅ Etiqueta generada. Al menú que apareix, tria "Desa la imatge" o obre-la directament amb l\'app Phomemo.');
+    showStatus(dlStatus,'success','✅ Etiqueta 10x15cm generada. Al menu, tria Desa la imatge o obre-la amb l\'app Phomemo.');
   };
   qrImg.onerror = function() {
     triggerDownload(canvas, id);
@@ -912,42 +927,53 @@ function printLabel() {
   var posicio   = document.getElementById('lp-posicio').textContent;
   var estat     = document.getElementById('lp-estat').textContent;
   var data      = document.getElementById('lp-data').textContent;
-  var avui      = new Date().toLocaleDateString('ca-ES');
   var qr        = qrUrl(id);
 
-  var win = window.open('','_blank','width=420,height=380');
+  var win = window.open('','_blank','width=440,height=640');
   var h = '';
   h += '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Etiqueta ' + id + '</title>';
   h += '<style>';
-  h += '@page{size:62mm 100mm;margin:2mm;}';
+  h += '@page{size:100mm 150mm;margin:0;}';
   h += '*{box-sizing:border-box;margin:0;padding:0;}';
-  h += 'body{font-family:sans-serif;width:58mm;padding:1mm;-webkit-print-color-adjust:exact;print-color-adjust:exact;}';
-  h += '.hdr{background:#7B1A2E;color:#fff;padding:1.5mm 2mm;border-radius:1.5mm 1.5mm 0 0;text-align:center;}';
-  h += '.hdr h2{font-size:5.5pt;font-weight:700;letter-spacing:.02em;}';
-  h += '.codi-box{border:0.5mm solid #7B1A2E;border-top:none;padding:2mm;text-align:center;margin-bottom:1mm;}';
-  h += '.codi-label{font-size:4pt;text-transform:uppercase;color:#78716c;font-weight:600;letter-spacing:.08em;}';
-  h += '.codi-big{font-family:monospace;font-size:17pt;font-weight:700;color:#7B1A2E;letter-spacing:.03em;line-height:1.1;margin-top:.5mm;}';
-  h += '.body{display:flex;gap:2mm;align-items:flex-start;}';
-  h += '.fields{flex:1;display:flex;flex-direction:column;gap:1.2mm;}';
-  h += '.fl{font-size:4pt;text-transform:uppercase;color:#78716c;font-weight:600;}';
-  h += '.fv{font-size:7.5pt;font-weight:700;color:#1a1a1a;line-height:1.2;}';
-  h += '.qc{display:flex;flex-direction:column;align-items:center;gap:.5mm;}';
-  h += '.qc img{width:20mm;height:20mm;}';
-  h += '.qc span{font-family:monospace;font-size:3.5pt;color:#78716c;}';
-  h += '.footer{border-top:0.3mm solid #e7e5e4;margin-top:1.5mm;padding-top:1mm;display:flex;justify-content:space-between;font-family:monospace;font-size:4pt;color:#a8a29e;}';
+  h += 'body{font-family:sans-serif;width:100mm;height:150mm;padding:4mm;-webkit-print-color-adjust:exact;print-color-adjust:exact;display:flex;flex-direction:column;}';
+  // BLOC SUPERIOR: capçalera + codi + dades + QR
+  h += '.top{border:0.4mm solid #7B1A2E;border-radius:2mm;overflow:hidden;margin-bottom:3mm;}';
+  h += '.hdr{background:#7B1A2E;color:#fff;padding:2mm;text-align:center;}';
+  h += '.hdr h2{font-size:9pt;font-weight:700;letter-spacing:.02em;}';
+  h += '.codi-box{padding:2.5mm;text-align:center;border-bottom:0.3mm solid #e7e5e4;}';
+  h += '.codi-label{font-size:6pt;text-transform:uppercase;color:#78716c;font-weight:600;letter-spacing:.1em;}';
+  h += '.codi-big{font-family:monospace;font-size:26pt;font-weight:700;color:#7B1A2E;letter-spacing:.05em;line-height:1.1;margin-top:1mm;}';
+  h += '.body{display:flex;gap:3mm;align-items:flex-start;padding:3mm;}';
+  h += '.fields{flex:1;display:flex;flex-direction:column;gap:2mm;}';
+  h += '.fl{font-size:6pt;text-transform:uppercase;color:#78716c;font-weight:600;letter-spacing:.05em;}';
+  h += '.fv{font-size:11pt;font-weight:700;color:#1a1a1a;line-height:1.2;}';
+  h += '.qc{display:flex;flex-direction:column;align-items:center;gap:1mm;}';
+  h += '.qc img{width:30mm;height:30mm;}';
+  h += '.qc span{font-family:monospace;font-size:5pt;color:#78716c;}';
+  h += '.footer{display:flex;justify-content:space-between;padding:1.5mm 3mm;border-top:0.3mm solid #e7e5e4;font-family:monospace;font-size:6pt;color:#a8a29e;}';
+  // BLOCS INFERIORS: codi repetit gran (per veure de lluny)
+  h += '.big-block{flex:1;display:flex;align-items:center;justify-content:center;border:0.4mm solid #7B1A2E;border-radius:2mm;margin-bottom:3mm;}';
+  h += '.big-block:last-child{margin-bottom:0;}';
+  h += '.big-code{font-family:monospace;font-size:40pt;font-weight:700;color:#7B1A2E;letter-spacing:.05em;}';
   h += '</style></head><body>';
+  // Bloc superior
+  h += '<div class="top">';
   h += '<div class="hdr"><h2>MARBRES I PEDRA ARTIFICIAL COLL</h2></div>';
   h += '<div class="codi-box"><div class="codi-label">Codi de referencia</div><div class="codi-big">' + id + '</div></div>';
   h += '<div class="body">';
   h += '<div class="fields">';
   h += '<div><span class="fl">Varietat</span><div class="fv">' + varietat + '</div></div>';
-  h += '<div><span class="fl">Proveidor</span><div class="fv" style="font-size:6.5pt">' + proveidor + '</div></div>';
-  h += '<div><span class="fl">Mesures</span><div class="fv" style="font-size:6.5pt">' + mesures + '</div></div>';
+  h += '<div><span class="fl">Proveidor</span><div class="fv" style="font-size:9pt">' + proveidor + '</div></div>';
+  h += '<div><span class="fl">Mesures</span><div class="fv" style="font-size:9pt">' + mesures + '</div></div>';
   h += '<div><span class="fl">Posicio</span><div class="fv">' + posicio + '</div></div>';
   h += '</div>';
   h += '<div class="qc"><img src="' + qr + '" alt="QR"><span>' + id + '</span></div>';
   h += '</div>';
   h += '<div class="footer"><span>' + estat + '</span><span>' + data + '</span></div>';
+  h += '</div>';
+  // Blocs inferiors amb codi gran repetit
+  h += '<div class="big-block"><div class="big-code">' + id + '</div></div>';
+  h += '<div class="big-block"><div class="big-code">' + id + '</div></div>';
   h += '<script>window.onload=function(){setTimeout(function(){window.print();},700);}<\/script>';
   h += '</body></html>';
   win.document.write(h);
