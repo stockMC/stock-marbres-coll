@@ -311,7 +311,7 @@ header{background:linear-gradient(160deg,#3D0D18 0%,var(--brand-dk) 40%,var(--br
   <div class="stock-controls">
     <input class="search-input" type="search" placeholder="🔍 Buscar varietat, ID, posició…" oninput="filterStock(this.value)" id="search-input">
     <select class="filter-select" onchange="filterStock(document.getElementById('search-input').value)" id="filter-estat">
-      <option value="">Tots els estats</option>
+      <option value="">Estoc actiu (per defecte)</option>
       <option value="Disponible">Disponible</option>
       <option value="Reservat">Reservat</option>
       <option value="Tallat">Tallat</option>
@@ -759,7 +759,7 @@ async function guardarEntrada() {
 
     var codiReal = base + '???';
     try {
-      var url  = cfg.scriptUrl + '?sheetId=' + cfg.sheetId + '&sheetName=' + (cfg.sheetName||'Taules_Stock');
+      var url  = cfg.scriptUrl + '?sheetId=' + cfg.sheetId + '&sheetName=' + (cfg.sheetName||'Taules_Stock') + '&fresh=1';
       var res  = await fetch(url);
       var rows = await res.json();
       // Trobar el codi mes alt d'aquest prefix (l'acabat de crear)
@@ -1122,6 +1122,14 @@ async function esborrarTaula(id, nom) {
 
 function renderStock(items) {
   var list = document.getElementById('stock-list');
+  // Amagar material que ja ha sortit (Tallat / Baixa) si no hi ha cap filtre d'estat actiu
+  var filtreEstat = (document.getElementById('filter-estat')||{}).value || '';
+  if (!filtreEstat) {
+    items = items.filter(function(r){
+      var e = (r.estat||'').toLowerCase();
+      return e.indexOf('tallat') === -1 && e.indexOf('baixa') === -1;
+    });
+  }
   if (!items.length) { list.innerHTML = '<div class="empty-state">Cap resultat trobat.</div>'; return; }
   list.innerHTML = items.map(function(r) {
     var estat = (r.estat||'').toLowerCase().replace(/[àáâ]/g,'a').replace(/[èéê]/g,'e');
