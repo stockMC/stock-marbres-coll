@@ -523,6 +523,7 @@ var cfg = {
 var stockData  = [];
 var currentId  = generateId();
 var printData  = {};
+var pecaGuardada = false;  // true quan la peca actual ja s'ha desat amb codi real
 var printMethod = 'bluetooth';
 
 // INIT config fields
@@ -631,6 +632,7 @@ function onVarietatInput() {
     hint.textContent = '';
   }
   // Mostra codi provisional
+  pecaGuardada = false;  // s'ha editat la peca: cal tornar a desar abans d'imprimir
   currentId = generateId();
   document.getElementById('id-val').textContent = currentId;
   updatePreview();
@@ -759,7 +761,7 @@ async function guardarEntrada() {
 
     var codiReal = base + '???';
     try {
-      var url  = cfg.scriptUrl + '?sheetId=' + cfg.sheetId + '&sheetName=' + (cfg.sheetName||'Taules_Stock') + '&fresh=1';
+      var url  = cfg.scriptUrl + '?sheetId=' + cfg.sheetId + '&sheetName=' + (cfg.sheetName||'Taules_Stock');
       var res  = await fetch(url);
       var rows = await res.json();
       // Trobar el codi mes alt d'aquest prefix (l'acabat de crear)
@@ -779,6 +781,7 @@ async function guardarEntrada() {
 
     // Actualitzar el codi mostrat i l'etiqueta amb el REAL
     currentId = codiReal;
+    pecaGuardada = true;  // ja desada: imprimir ha de fer servir AQUEST codi, no recalcular
     document.getElementById('id-val').textContent = currentId;
     updatePreview();
 
@@ -804,17 +807,17 @@ function showStatus(el, type, msg) {
 async function anarImprimir() {
   var cd = document.getElementById('card-detall'); if (cd) cd.style.display = 'none';
   var varietat = document.getElementById('varietat').value.trim();
-  // Si hi ha varietat i encara no s'ha guardat amb codi real, calcula'l ara
-  if (varietat && cfg.scriptUrl && cfg.sheetId) {
+
+  // Si la peca ENCARA no s'ha desat, la desem ara (aixo genera el codi real
+  // al servidor amb lock). Aixi imprimir i guardar comparteixen SEMPRE el mateix codi.
+  if (!pecaGuardada && varietat && cfg.scriptUrl && cfg.sheetId) {
     var btnP = document.querySelector('#panel-entrada .btn-print');
-    if (btnP) { btnP.textContent = '⏳ Calculant codi…'; }
-    try {
-      currentId = await generateIdFromSheet(varietat);
-      document.getElementById('id-val').textContent = currentId;
-      updatePreview();
-    } catch(e) {}
+    if (btnP) { btnP.textContent = '⏳ Desant i generant codi…'; }
+    await guardarEntrada();   // desa + rellegeix codi real + marca pecaGuardada=true
     if (btnP) { btnP.textContent = '🖨 Imprimir etiqueta'; }
   }
+  // Si pecaGuardada ja és true, fem servir currentId tal qual (NO recalculem).
+
   showPanel('imprimir');
   document.querySelectorAll('.tab-btn').forEach(function(b,i) {
     b.classList.toggle('active', i===2);
@@ -1308,6 +1311,7 @@ function resetForm() {
   fotoEtiquetaData = null;
   fotoTaulaData    = null;
   document.getElementById('status-entrada').classList.remove('show');
+  pecaGuardada = false;  // nova peca: encara no desada
   currentId = generateId();
   document.getElementById('id-val').textContent = currentId;
   updatePreview();
