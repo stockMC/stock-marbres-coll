@@ -786,13 +786,13 @@ async function guardarEntrada() {
     updatePreview();
 
     var msg = teFotos ? '✅ Taula ' + currentId + ' guardada amb fotos. Ja pots imprimir l\'etiqueta.' : '✅ Taula ' + currentId + ' guardada. Ja pots imprimir l\'etiqueta.';
-    showStatus(status,'success',msg + ' Es netejara en 15 segons.');
-    setTimeout(function(){ resetForm(); }, 15000);
+    showStatus(status,'success',msg);
+    programarReset();
 
   } catch(err) {
     showStatus(status,'warn','⚠️ Guardat enviat. Comprova la pestanya Estoc per veure el codi.');
     learnMaterial(varietat);
-    setTimeout(function(){ resetForm(); }, 15000);
+    programarReset();
   }
 
   btn.disabled = false; btn.textContent = '💾 Guardar al Google Sheet';
@@ -802,6 +802,20 @@ function showStatus(el, type, msg) {
   el.className = 'status ' + type + ' show';
   el.innerHTML = '<span>' + msg + '</span>';
   setTimeout(function() { el.classList.remove('show'); }, 6000);
+}
+
+// Neteja el formulari per a la peca seguent, pero NO mentre ets a la pantalla
+// d'impressio (esperaria que tornis a "Nova entrada" per no perdre l'etiqueta).
+function programarReset() {
+  setTimeout(function comprova() {
+    var panelImpr = document.getElementById('panel-imprimir');
+    if (panelImpr && panelImpr.classList.contains('active')) {
+      // Encara imprimint: torna a comprovar d'aqui a 5s
+      setTimeout(comprova, 5000);
+    } else {
+      resetForm();
+    }
+  }, 15000);
 }
 
 async function anarImprimir() {
@@ -959,7 +973,19 @@ function fallbackDownload(canvas, filename, blob) {
   }
 }
 
-function printLabel() {
+async function printLabel() {
+  // GARANTIA: si venim d'una peca nova que encara no s'ha desat, desem-la ara
+  // (genera el codi real al servidor amb lock) ABANS d'imprimir. Aixi l'etiqueta
+  // porta SEMPRE el codi definitiu i no es creen duplicats.
+  var varietatEntrada = (document.getElementById('varietat')||{}).value;
+  if (!pecaGuardada && varietatEntrada && varietatEntrada.trim() && cfg.scriptUrl && cfg.sheetId) {
+    var btnImpr = document.querySelector('#panel-imprimir .btn-primary');
+    var txtOrig = btnImpr ? btnImpr.textContent : '';
+    if (btnImpr) { btnImpr.disabled = true; btnImpr.textContent = '⏳ Desant i generant codi…'; }
+    await guardarEntrada();  // desa + rellegeix codi real + pecaGuardada=true + actualitza lp-id
+    if (btnImpr) { btnImpr.disabled = false; btnImpr.textContent = txtOrig || '🖨 Imprimir etiqueta'; }
+  }
+
   var id        = document.getElementById('lp-id').textContent;
   var varietat  = document.getElementById('lp-varietat').textContent;
   var proveidor = document.getElementById('lp-proveidor').textContent;
