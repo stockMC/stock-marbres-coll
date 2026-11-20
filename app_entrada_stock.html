@@ -298,8 +298,7 @@ header{background:linear-gradient(160deg,#3D0D18 0%,var(--brand-dk) 40%,var(--br
 
   <div id="status-entrada" class="status"></div>
   <div class="btn-row">
-    <button class="btn btn-primary" onclick="guardarEntrada()">💾 Guardar al Google Sheet</button>
-    <button class="btn btn-print" onclick="anarImprimir()">🖨 Imprimir etiqueta</button>
+    <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="guardarIImprimir()">💾🖨 Guardar i imprimir</button>
   </div>
   <div style="margin-top:.5rem">
     <button class="btn btn-ghost" style="width:100%;justify-content:center" onclick="resetForm()">🔄 Nova taula (netejar formulari)</button>
@@ -759,25 +758,38 @@ async function guardarEntrada() {
     btn.textContent = '⏳ Confirmant codi…';
     await new Promise(function(res){ setTimeout(res, 2500); });
 
-    var codiReal = base + '???';
-    try {
-      var url  = cfg.scriptUrl + '?sheetId=' + cfg.sheetId + '&sheetName=' + (cfg.sheetName||'Taules_Stock');
-      var res  = await fetch(url);
-      var rows = await res.json();
-      // Trobar el codi mes alt d'aquest prefix (l'acabat de crear)
-      var maxNum = 0;
-      for (var i = 1; i < rows.length; i++) {
-        var codi = (rows[i][0]||'').toString().toUpperCase().trim();
-        if (codi.length > base.length && codi.substring(0, base.length) === base) {
-          var resta = codi.substring(base.length);
-          if (/^[0-9]+$/.test(resta)) {
-            var num = parseInt(resta, 10);
-            if (num > maxNum) maxNum = num;
+    // Rellegir el Sheet per saber el codi REAL. Fins a 2 intents (per si el
+    // servidor encara no ha acabat d'escriure amb fotos).
+    var codiReal = '';
+    for (var intent = 0; intent < 2 && !codiReal; intent++) {
+      if (intent > 0) { await new Promise(function(res){ setTimeout(res, 2000); }); }
+      try {
+        var url  = cfg.scriptUrl + '?sheetId=' + cfg.sheetId + '&sheetName=' + (cfg.sheetName||'Taules_Stock') + '&fresh=1';
+        var res  = await fetch(url);
+        var rows = await res.json();
+        var maxNum = 0;
+        for (var i = 1; i < rows.length; i++) {
+          var codi = (rows[i][0]||'').toString().toUpperCase().trim();
+          if (codi.length > base.length && codi.substring(0, base.length) === base) {
+            var resta = codi.substring(base.length);
+            if (/^[0-9]+$/.test(resta)) {
+              var num = parseInt(resta, 10);
+              if (num > maxNum) maxNum = num;
+            }
           }
         }
-      }
-      if (maxNum > 0) codiReal = base + String(maxNum).padStart(3,'0');
-    } catch(e) {}
+        if (maxNum > 0) codiReal = base + String(maxNum).padStart(3,'0');
+      } catch(e) {}
+    }
+
+    if (!codiReal) {
+      // No s'ha pogut confirmar el codi: NO marquem com desada, avisem i parem.
+      showStatus(status,'warn','⚠️ Guardat enviat però no s\'ha pogut confirmar el codi. Comprova la pestanya Estoc abans d\'imprimir.');
+      btn.disabled = false; btn.textContent = '💾🖨 Guardar i imprimir';
+      guardant = false;
+      programarReset();
+      return;
+    }
 
     // Actualitzar el codi mostrat i l'etiqueta amb el REAL
     currentId = codiReal;
@@ -795,7 +807,7 @@ async function guardarEntrada() {
     programarReset();
   }
 
-  btn.disabled = false; btn.textContent = '💾 Guardar al Google Sheet';
+  btn.disabled = false; btn.textContent = '💾🖨 Guardar i imprimir';
   guardant = false;
 }
 function showStatus(el, type, msg) {
@@ -818,20 +830,24 @@ function programarReset() {
   }, 15000);
 }
 
-async function anarImprimir() {
+// UN SOL BOTO: desa la peca (el servidor genera el codi real amb lock) i,
+// nomes quan ja esta desada amb el seu codi, porta a la pantalla d'impressio.
+// Guardar i imprimir comparteixen SEMPRE el mateix codi, sense duplicats.
+async function guardarIImprimir() {
   var cd = document.getElementById('card-detall'); if (cd) cd.style.display = 'none';
+  var status = document.getElementById('status-entrada');
   var varietat = document.getElementById('varietat').value.trim();
+  if (!varietat) { showStatus(status,'error','⚠️ La varietat és obligatòria.'); return; }
+  if (!cfg.scriptUrl || !cfg.sheetId) { showStatus(status,'warn','⚙️ Configura l\'Apps Script primer (pestanya Configuració).'); return; }
 
-  // Si la peca ENCARA no s'ha desat, la desem ara (aixo genera el codi real
-  // al servidor amb lock). Aixi imprimir i guardar comparteixen SEMPRE el mateix codi.
-  if (!pecaGuardada && varietat && cfg.scriptUrl && cfg.sheetId) {
-    var btnP = document.querySelector('#panel-entrada .btn-print');
-    if (btnP) { btnP.textContent = '⏳ Desant i generant codi…'; }
-    await guardarEntrada();   // desa + rellegeix codi real + marca pecaGuardada=true
-    if (btnP) { btnP.textContent = '🖨 Imprimir etiqueta'; }
+  // 1) Desar: genera el codi real i actualitza l'etiqueta (lp-id) amb ell.
+  if (!pecaGuardada) {
+    await guardarEntrada();
   }
-  // Si pecaGuardada ja és true, fem servir currentId tal qual (NO recalculem).
+  // Si guardarEntrada no ha pogut confirmar (sense connexio), no seguim a imprimir.
+  if (!pecaGuardada) return;
 
+  // 2) Imprimir: anem a la pantalla d'impressio amb el codi ja definitiu.
   showPanel('imprimir');
   document.querySelectorAll('.tab-btn').forEach(function(b,i) {
     b.classList.toggle('active', i===2);
@@ -973,19 +989,9 @@ function fallbackDownload(canvas, filename, blob) {
   }
 }
 
-async function printLabel() {
-  // GARANTIA: si venim d'una peca nova que encara no s'ha desat, desem-la ara
-  // (genera el codi real al servidor amb lock) ABANS d'imprimir. Aixi l'etiqueta
-  // porta SEMPRE el codi definitiu i no es creen duplicats.
-  var varietatEntrada = (document.getElementById('varietat')||{}).value;
-  if (!pecaGuardada && varietatEntrada && varietatEntrada.trim() && cfg.scriptUrl && cfg.sheetId) {
-    var btnImpr = document.querySelector('#panel-imprimir .btn-primary');
-    var txtOrig = btnImpr ? btnImpr.textContent : '';
-    if (btnImpr) { btnImpr.disabled = true; btnImpr.textContent = '⏳ Desant i generant codi…'; }
-    await guardarEntrada();  // desa + rellegeix codi real + pecaGuardada=true + actualitza lp-id
-    if (btnImpr) { btnImpr.disabled = false; btnImpr.textContent = txtOrig || '🖨 Imprimir etiqueta'; }
-  }
-
+function printLabel() {
+  // El codi ja ve desat i definitiu des de "Guardar i imprimir" (o des de
+  // l'escaner/estoc, que mostren una peca existent). Aqui nomes imprimim.
   var id        = document.getElementById('lp-id').textContent;
   var varietat  = document.getElementById('lp-varietat').textContent;
   var proveidor = document.getElementById('lp-proveidor').textContent;
