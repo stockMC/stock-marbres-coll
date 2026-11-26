@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="ca">
 <head>
 <meta charset="UTF-8">
@@ -511,6 +511,36 @@ function doGet(e) {<br>
 </div>
 
 </div><!-- /main -->
+
+<!-- MODAL RETALL: apareix en marcar una taula com a Tallat -->
+<div id="modal-retall" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.55);align-items:center;justify-content:center;padding:1rem;">
+  <div style="background:#fff;border-radius:14px;max-width:420px;width:100%;max-height:90vh;overflow:auto;padding:1.2rem;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:1.05rem;color:var(--brand);margin-bottom:.3rem">✂️ Retalls aprofitables?</div>
+    <div id="mr-intro" style="font-size:.85rem;color:var(--stone-600);margin-bottom:1rem">Has marcat <b id="mr-origen">—</b> com a tallada. Han quedat retalls que vulguis tornar a posar a l'estoc?</div>
+
+    <!-- Pas 1: Si / No -->
+    <div id="mr-pas1" style="display:flex;gap:.6rem">
+      <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="mrMostrarForm()">✅ Sí, afegir retall</button>
+      <button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="tancarModalRetall()">No, cap retall</button>
+    </div>
+
+    <!-- Pas 2: formulari del retall -->
+    <div id="mr-pas2" style="display:none">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-bottom:.6rem">
+        <div><label style="font-size:.72rem;font-weight:600;color:var(--stone-600)">Amplada (cm)</label><input type="number" id="mr-amplada" min="0" step="0.5" style="width:100%;padding:.55rem;border:1.5px solid var(--stone-200);border-radius:7px;font-size:.9rem"></div>
+        <div><label style="font-size:.72rem;font-weight:600;color:var(--stone-600)">Alçada (cm)</label><input type="number" id="mr-alcada" min="0" step="0.5" style="width:100%;padding:.55rem;border:1.5px solid var(--stone-200);border-radius:7px;font-size:.9rem"></div>
+        <div><label style="font-size:.72rem;font-weight:600;color:var(--stone-600)">Gruix (cm)</label><input type="number" id="mr-gruix" min="0" step="0.5" style="width:100%;padding:.55rem;border:1.5px solid var(--stone-200);border-radius:7px;font-size:.9rem"></div>
+        <div><label style="font-size:.72rem;font-weight:600;color:var(--stone-600)">Posició</label><input type="text" id="mr-posicio" placeholder="ex: Retalls-A3" style="width:100%;padding:.55rem;border:1.5px solid var(--stone-200);border-radius:7px;font-size:.9rem"></div>
+      </div>
+      <div style="font-size:.74rem;color:var(--stone-400);margin-bottom:.8rem">Hereta varietat i proveïdor de la taula original. Es desarà amb codi nou i marcat com a retall.</div>
+      <div id="mr-status" class="status"></div>
+      <div style="display:flex;gap:.6rem">
+        <button class="btn btn-primary" id="mr-btn-desar" style="flex:1;justify-content:center" onclick="desarRetall()">💾 Desar retall</button>
+        <button class="btn btn-ghost" onclick="tancarModalRetall()">Tancar</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script>
 // STATE
@@ -1308,6 +1338,94 @@ async function canviarEstat(id, nouEstat) {
   var t = stockData.find(function(x){ return x.id === id; });
   if (t) { t.estat = nouEstat; if (taulaSeleccionada && taulaSeleccionada.id === id) taulaSeleccionada.estat = nouEstat; renderDetallTaula(t); }
   document.getElementById('lp-estat').textContent = nouEstat;
+
+  // Si s'ha marcat Tallat, preguntar pels retalls
+  if (nouEstat === 'Tallat') {
+    var origen = t || stockData.find(function(x){ return x.id === id; });
+    obrirModalRetall(origen || { id: id });
+  }
+}
+
+// ===== MODAL RETALL =====
+var retallOrigen = null;  // la taula d'origen (per heretar varietat/proveidor)
+
+function obrirModalRetall(taula) {
+  retallOrigen = taula || {};
+  document.getElementById('mr-origen').textContent = (retallOrigen.varietat || retallOrigen.id || 'la taula');
+  document.getElementById('mr-pas1').style.display = 'flex';
+  document.getElementById('mr-pas2').style.display = 'none';
+  // Prefill: gruix heretat, posicio buida
+  document.getElementById('mr-amplada').value = '';
+  document.getElementById('mr-alcada').value  = '';
+  document.getElementById('mr-gruix').value   = retallOrigen.gruix || '';
+  document.getElementById('mr-posicio').value = '';
+  document.getElementById('mr-status').classList.remove('show');
+  var m = document.getElementById('modal-retall');
+  m.style.display = 'flex';
+}
+
+function mrMostrarForm() {
+  document.getElementById('mr-pas1').style.display = 'none';
+  document.getElementById('mr-pas2').style.display = 'block';
+}
+
+function tancarModalRetall() {
+  document.getElementById('modal-retall').style.display = 'none';
+  retallOrigen = null;
+}
+
+async function desarRetall() {
+  if (!cfg.scriptUrl || !cfg.sheetId) { alert('Cal connexió al Sheet.'); return; }
+  var o = retallOrigen || {};
+  var amplada = parseFloat(document.getElementById('mr-amplada').value) || '';
+  var alcada  = parseFloat(document.getElementById('mr-alcada').value)  || '';
+  var gruix   = parseFloat(document.getElementById('mr-gruix').value)   || '';
+  var posicio = document.getElementById('mr-posicio').value.trim();
+  var st = document.getElementById('mr-status');
+
+  var varietat = o.varietat || '';
+  if (!varietat) { showStatus(st,'error','⚠️ No es coneix la varietat d\'origen.'); return; }
+  if (!amplada || !alcada) { showStatus(st,'error','⚠️ Indica com a mínim amplada i alçada.'); return; }
+
+  var btn = document.getElementById('mr-btn-desar');
+  btn.disabled = true; btn.textContent = '⏳ Desant retall…';
+
+  var prefix = prefixDe(varietat);
+  var year2  = String(new Date().getFullYear()).slice(-2);
+  var base   = prefix + year2;
+
+  var payload = {
+    sheetId:     cfg.sheetId,
+    sheetName:   cfg.sheetName || 'Taules_Stock',
+    generarCodi: base,
+    dades: {
+      varietat:  varietat,
+      proveidor: o.proveidor || '',
+      amplada:   amplada,
+      alcada:    alcada,
+      gruix:     gruix,
+      pes:       '',
+      qualitat:  o.qualitat || '',
+      posicio:   posicio,
+      estat:     'Disponible',
+      data:      new Date().toLocaleDateString('ca-ES'),
+      obs:       'Retall de ' + (o.id || '?')
+    }
+  };
+
+  try {
+    await fetch(cfg.scriptUrl, { method:'POST', mode:'no-cors', body: JSON.stringify(payload) });
+    showStatus(st,'success','✅ Retall desat a l\'estoc (hereta ' + varietat + ').');
+    btn.textContent = '✅ Desat';
+    setTimeout(function(){
+      tancarModalRetall();
+      btn.disabled = false; btn.textContent = '💾 Desar retall';
+      if (document.getElementById('panel-stock').classList.contains('active')) loadStock();
+    }, 1400);
+  } catch(err) {
+    showStatus(st,'warn','⚠️ Enviat. Comprova la pestanya Estoc.');
+    btn.disabled = false; btn.textContent = '💾 Desar retall';
+  }
 }
 
 function showPanel(id) {
@@ -1559,6 +1677,16 @@ function renderScannerResult(t) {
     + row('Data entrada', t.data)
     + '</table>';
 
+  // Canvi d'estat (igual que a l'Estoc)
+  html += '<div class="detall-estat-canvi" style="margin-top:.8rem">';
+  html += '<div class="dec-label">Canviar estat:</div>';
+  html += '<div class="dec-btns">';
+  ['Disponible','Reservat','Tallat','Baixa'].forEach(function(e){
+    var actiu = (t.estat||'') === e;
+    html += '<button class="dec-btn' + (actiu?' dec-actiu':'') + '" onclick="canviarEstatScanner(\'' + t.id + '\',\'' + e + '\')">' + e + '</button>';
+  });
+  html += '</div></div>';
+
   document.getElementById('scanner-result-body').innerHTML = html;
   document.getElementById('scanner-result').style.display  = 'block';
   document.getElementById('scanner-status').textContent    = 'Taula trobada!';
@@ -1572,6 +1700,39 @@ function row(label, val) {
     + '<td style="padding:.4rem .3rem;color:var(--stone-600);font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;width:40%">' + label + '</td>'
     + '<td style="padding:.4rem .3rem;font-weight:600">' + (val||'-') + '</td>'
     + '</tr>';
+}
+
+// Canvia l'estat de la peca escanejada i refresca el resultat
+async function canviarEstatScanner(id, nouEstat) {
+  if (!cfg.scriptUrl || !cfg.sheetId) { alert('Cal connexió al Sheet.'); return; }
+
+  fetch(cfg.scriptUrl, {
+    method: 'POST',
+    mode: 'no-cors',
+    body: JSON.stringify({
+      sheetId:   cfg.sheetId,
+      sheetName: cfg.sheetName || 'Taules_Stock',
+      canviarEstat: { id: id, estat: nouEstat }
+    })
+  });
+
+  // Actualitzar localment la peca escanejada i tornar a pintar
+  var t = window._scannerTaula;
+  if (t && t.id === id) {
+    t.estat = nouEstat;
+    renderScannerResult(t);
+  }
+  // Si tambe esta a l'estoc carregat, mantenir-ho coherent
+  var s = stockData.find(function(x){ return x.id === id; });
+  if (s) s.estat = nouEstat;
+
+  var st = document.getElementById('scanner-status');
+  if (st) st.textContent = 'Estat canviat a: ' + nouEstat;
+
+  // Si s'ha marcat Tallat, preguntar pels retalls (hereta de la peca escanejada)
+  if (nouEstat === 'Tallat') {
+    obrirModalRetall(t || s || { id: id });
+  }
 }
 
 function renderScannerResultRaw(qrData) {
